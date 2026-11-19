@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 public class SessionExpirationConcurrencyTests
 {
@@ -20,10 +21,13 @@ public class SessionExpirationConcurrencyTests
         var second = new EfGameCatalog(secondContext);
         var completion = deadline;
         var next = deadline.AddHours(24);
+        var exercise = JsonDocument.Parse("{\"expression\":\"1+1\"}").RootElement.Clone();
+        var completionEvent = new GameSessionCompletedEvent(session.Id, session.Id, game.Id, SpaceId, "MATH", game.Title, "UNFINISHED", 0, 3, 0, session.CreatedAt, completion, next, exercise, []);
+        var notificationEvent = new UnfinishedSessionNotificationEvent(Guid.NewGuid(), SpaceId, game.Id, game.Title, "UNFINISHED", 0, 0, completion, next);
 
         var results = await Task.WhenAll(
-            first.TryExpireSession(session.Id, deadline, completion, next, default),
-            second.TryExpireSession(session.Id, deadline, completion, next, default));
+            first.TryExpireSession(session.Id, deadline, completion, next, default, completionEvent, notificationEvent),
+            second.TryExpireSession(session.Id, deadline, completion, next, default, completionEvent, notificationEvent));
 
         Assert.Single(results.Where(x => x));
         using var verifyContext = database.CreateContext();
@@ -31,6 +35,8 @@ public class SessionExpirationConcurrencyTests
         Assert.Equal(SessionStatus.UNFINISHED, expired!.Status);
         Assert.Equal(completion, expired.CompletedAt);
         Assert.Equal(next, expired.NextAvailableAt);
+        Assert.Equal(1, await verifyContext.Outbox.CountAsync(x => x.EventType == "GameSessionCompleted"));
+        Assert.Equal(1, await verifyContext.Outbox.CountAsync(x => x.EventType == "UnfinishedSessionNotification"));
     }
 
     [Fact]
