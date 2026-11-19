@@ -271,14 +271,14 @@ public sealed class ProgressService(SuiviDbContext db)
     private static decimal NormalizedAverageScore(List<CompletedGameSession> sessions)
     {
         var scoreable = sessions
-            .Where(s => s.FinalMaxScore.HasValue &&
-                        s.FinalMaxScore.Value > 0 &&
-                        s.FinalScore >= 0 &&
-                        s.FinalScore <= s.FinalMaxScore.Value)
+            .Select(s => (Session: s, FinalMaxScore: s.FinalMaxScore.GetValueOrDefault()))
+            .Where(s => s.FinalMaxScore > 0 &&
+                        s.Session.FinalScore >= 0 &&
+                        s.Session.FinalScore <= s.FinalMaxScore)
             .ToList();
         if (scoreable.Count == 0) return 0;
         return Math.Round(
-            scoreable.Average(s => s.FinalScore / s.FinalMaxScore.Value),
+            scoreable.Average(s => s.Session.FinalScore / s.FinalMaxScore),
             4);
     }
 
