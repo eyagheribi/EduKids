@@ -322,7 +322,7 @@ public sealed class GameService(IGameCatalog catalog, IEnumerable<IGameEngine> e
         var g=await Required(s,id,ct); await Ensure(s,u,g.Type,ct); var existing=await catalog.Sessions(s,id,ct);
         for(var i=0;i<existing.Count;i++) if(existing[i].Status==SessionStatus.ACTIVE) existing[i]=await ExpireIfDue(existing[i],ct);
         var active=existing.FirstOrDefault(x=>x.Status==SessionStatus.ACTIVE); if(active!=null) return SessionDtoOf(active,true);
-        var blocked=existing.Where(x=>(x.Status==SessionStatus.FAILED||x.Status==SessionStatus.UNFINISHED)&&x.NextAvailableAt>clock.UtcNow).OrderByDescending(x=>x.NextAvailableAt).FirstOrDefault(); if(blocked!=null) throw new DomainException($"Jeu indisponible jusqu'à {blocked.NextAvailableAt:O}.",409);
+        var blocked=existing.Where(IsReplayBlocked).OrderByDescending(x=>x.NextAvailableAt).FirstOrDefault(); if(blocked!=null) throw new DomainException($"Jeu indisponible jusqu'à {blocked.NextAvailableAt:O}.",409);
         var session=new SessionRecord{SpaceId=s,Game=g,CreatedAt=clock.UtcNow,PlayJson=JsonSerializer.Serialize(Engine(g.Type).Generate(JsonDocument.Parse(g.Content).RootElement))};
         if(!await catalog.SaveSession(session,ct))
         {
@@ -332,7 +332,7 @@ public sealed class GameService(IGameCatalog catalog, IEnumerable<IGameEngine> e
         }
         return SessionDtoOf(session,true);
     }
-    public async Task<AvailabilityDto> Availability(Guid s,Guid id,ClaimsPrincipal u,CancellationToken ct) { var g=await Required(s,id,ct); await Ensure(s,u,g.Type,ct); var sessions=await catalog.Sessions(s,id,ct); for(var i=0;i<sessions.Count;i++)if(sessions[i].Status==SessionStatus.ACTIVE)sessions[i]=await ExpireIfDue(sessions[i],ct); var wait=sessions.Where(x=>(x.Status==SessionStatus.FAILED||x.Status==SessionStatus.UNFINISHED)&&x.NextAvailableAt>clock.UtcNow).OrderByDescending(x=>x.NextAvailableAt).FirstOrDefault(); return new(wait==null,wait?.NextAvailableAt); }
+    public async Task<AvailabilityDto> Availability(Guid s,Guid id,ClaimsPrincipal u,CancellationToken ct) { var g=await Required(s,id,ct); await Ensure(s,u,g.Type,ct); var sessions=await catalog.Sessions(s,id,ct); for(var i=0;i<sessions.Count;i++)if(sessions[i].Status==SessionStatus.ACTIVE)sessions[i]=await ExpireIfDue(sessions[i],ct); var wait=sessions.Where(IsReplayBlocked).OrderByDescending(x=>x.NextAvailableAt).FirstOrDefault(); return new(wait==null,wait?.NextAvailableAt); }
     public async Task<SessionDto> Session(Guid s,Guid id,ClaimsPrincipal u,CancellationToken ct) { var x=await catalog.GetSession(id,ct); if(x==null||x.SpaceId!=s) throw new DomainException("Session introuvable.",404); await Ensure(s,u,x.Game.Type,ct); x=await ExpireIfDue(x,ct); return SessionDtoOf(x,x.Status==SessionStatus.ACTIVE); }
     public async Task<AttemptDto> Submit(Guid s,Guid sid,SubmitAttemptRequest r,ClaimsPrincipal u,CancellationToken ct)
     {
@@ -371,6 +371,10 @@ public sealed class GameService(IGameCatalog catalog, IEnumerable<IGameEngine> e
     private Task PublishCompletion(SessionRecord session,CancellationToken ct) => session.CompletedAt is { } completedAt
         ? publisher.Publish(new GameSessionCompletedEvent(session.Id,session.Id,session.Game.Id,session.SpaceId,session.Game.Type.ToString(),session.Status.ToString(),completedAt,session.NextAvailableAt),ct)
         : Task.CompletedTask;
+    private bool IsReplayBlocked(SessionRecord session) =>
+        (session.Status is SessionStatus.FAILED or SessionStatus.UNFINISHED)
+        && session.NextAvailableAt is { } nextAvailableAt
+        && nextAvailableAt > clock.UtcNow;
     private async Task<GameRecord> Required(Guid s,Guid id,CancellationToken ct)=>await catalog.Find(s,id,ct)??throw new DomainException("Jeu introuvable.",404);
     private static string NormalizeContent(GameType t,JsonElement c) => t==GameType.MATCHING ? JsonSerializer.Serialize(new { pairs=c.GetProperty("pairs").EnumerateArray().Select(p=>new { id=Guid.NewGuid(), left=p.GetProperty("left").GetString(), right=p.GetProperty("right").GetString() }) }) : c.GetRawText();
     private static GameDto Dto(GameRecord g)=>new(g.Id,g.SpaceId,g.Type.ToString(),g.Title,JsonDocument.Parse(g.Content).RootElement.Clone(),g.CreatedAt,g.UpdatedAt);

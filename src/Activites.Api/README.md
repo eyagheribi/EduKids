@@ -47,6 +47,8 @@ La génération de jeu est retournée dans la réponse de démarrage. Réponses 
 
 Les règles de session sont configurées par `GameSessions` dans `appsettings.json`: trois tentatives, cinq minutes d'inactivité à partir de la première réponse incorrecte, vingt-quatre heures de cooldown après `FAILED` ou `UNFINISHED`, et un balayage périodique toutes les quinze secondes. Chaque réponse incorrecte avant la dernière redémarre le délai. Les sessions ouvertes sans réponse n'ont pas de deadline. Les routes de reprise et de soumission vérifient elles aussi la deadline et effectuent la transition immédiatement si nécessaire.
 
+`SUCCESS` permet une nouvelle session immédiatement. `FAILED` et `UNFINISHED` bloquent seulement le même jeu dans le même espace jusqu'à `NextAvailableAt`; la disponibilité revient à l'instant exact de cette date UTC.
+
 ## Exécution
 
 Depuis la racine, après avoir défini les variables ci-dessus : `dotnet run --project src/Activites.Api --launch-profile http`. Swagger UI est disponible en développement via `/swagger`. Compiler : `dotnet build src/Activites.Api/Activites.Api.csproj`. Tests : `dotnet test tests/Activites.Api.Tests/Activites.Api.Tests.csproj`.
