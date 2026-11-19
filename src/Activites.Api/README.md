@@ -45,6 +45,8 @@ Contenus parent : MATH `{ "expression":"12 / 3 + 5 * (2 - 1)" }`; MATCHING `{ "p
 
 La génération de jeu est retournée dans la réponse de démarrage. Réponses attendues ne sont retournées qu'après un échec final. Math utilise `decimal`, invariant culture, évaluations de gauche à droite pour opérateurs de même priorité et tolérance `0.000001`.
 
+Les règles de session sont configurées par `GameSessions` dans `appsettings.json`: trois tentatives, cinq minutes d'inactivité à partir de la première réponse incorrecte, puis vingt-quatre heures de cooldown après `FAILED` ou `UNFINISHED`. Chaque réponse incorrecte avant la dernière redémarre le délai. Les sessions ouvertes sans réponse n'ont pas de deadline.
+
 ## Exécution
 
 Depuis la racine, après avoir défini les variables ci-dessus : `dotnet run --project src/Activites.Api --launch-profile http`. Swagger UI est disponible en développement via `/swagger`. Compiler : `dotnet build src/Activites.Api/Activites.Api.csproj`. Tests : `dotnet test tests/Activites.Api.Tests/Activites.Api.Tests.csproj`.
