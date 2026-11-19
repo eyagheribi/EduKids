@@ -22,8 +22,8 @@ public sealed record SpaceSummaryDto(
     decimal SuccessRate,
     decimal AverageAttemptsPerSession,
     /// <summary>
-    /// averageNormalizedScore = average of (session.FinalScore / session.MaxAttempts)
-    /// Uses normalized scores so games with different maxScore scales are comparable.
+    /// averageNormalizedScore = average of (session.FinalScore / session.FinalMaxScore)
+    /// Sessions without a positive final maximum score are excluded.
     /// </summary>
     decimal AverageNormalizedScore);
 
@@ -36,6 +36,7 @@ public sealed record SessionSummaryDto(
     int AttemptsUsed,
     int MaxAttempts,
     decimal FinalScore,
+    decimal? FinalMaxScore,
     DateTimeOffset StartedAt,
     DateTimeOffset CompletedAt,
     DateTimeOffset? NextAvailableAt);
@@ -66,6 +67,7 @@ public sealed record SessionDetailDto(
     int AttemptsUsed,
     int MaxAttempts,
     decimal FinalScore,
+    decimal? FinalMaxScore,
     DateTimeOffset StartedAt,
     DateTimeOffset CompletedAt,
     DateTimeOffset? NextAvailableAt,
@@ -194,6 +196,7 @@ public sealed class ProgressService(SuiviDbContext db)
             session.AttemptsUsed,
             session.MaxAttempts,
             session.FinalScore,
+            session.FinalMaxScore,
             session.StartedAt,
             session.CompletedAt,
             session.NextAvailableAt,
@@ -262,23 +265,26 @@ public sealed class ProgressService(SuiviDbContext db)
     }
 
     /// <summary>
-    /// Normalized score = session.FinalScore / session.MaxAttempts
-    /// (MaxAttempts is used as the denominator since FinalScore is an aggregate over attempts.)
-    /// Average is taken over all sessions with MaxAttempts > 0.
-    /// Returns 0 for empty datasets.
+    /// Normalized score = session.FinalScore / session.FinalMaxScore.
+    /// Sessions with missing, zero, or invalid maxima are excluded; returns 0 when none are scoreable.
     /// </summary>
     private static decimal NormalizedAverageScore(List<CompletedGameSession> sessions)
     {
-        var scoreable = sessions.Where(s => s.MaxAttempts > 0).ToList();
+        var scoreable = sessions
+            .Where(s => s.FinalMaxScore.HasValue &&
+                        s.FinalMaxScore.Value > 0 &&
+                        s.FinalScore >= 0 &&
+                        s.FinalScore <= s.FinalMaxScore.Value)
+            .ToList();
         if (scoreable.Count == 0) return 0;
         return Math.Round(
-            scoreable.Average(s => s.FinalScore / s.MaxAttempts),
+            scoreable.Average(s => s.FinalScore / s.FinalMaxScore.Value),
             4);
     }
 
     private static SessionSummaryDto ToSummaryDto(CompletedGameSession s) =>
         new(s.SessionId, s.GameId, s.GameTitle,
             s.GameType.ToString(), s.FinalStatus.ToString(),
-            s.AttemptsUsed, s.MaxAttempts, s.FinalScore,
+            s.AttemptsUsed, s.MaxAttempts, s.FinalScore, s.FinalMaxScore,
             s.StartedAt, s.CompletedAt, s.NextAvailableAt);
 }

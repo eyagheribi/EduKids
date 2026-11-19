@@ -11,6 +11,7 @@ public class CompletedGameSession
     public int AttemptsUsed { get; set; }
     public int MaxAttempts { get; set; }
     public decimal FinalScore { get; set; }
+    public decimal? FinalMaxScore { get; set; }
     public DateTimeOffset StartedAt { get; set; }
     public DateTimeOffset CompletedAt { get; set; }
     public DateTimeOffset? NextAvailableAt { get; set; }

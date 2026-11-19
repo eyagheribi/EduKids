@@ -35,6 +35,9 @@ public class SuiviDbContext : DbContext
             entity.Property(e => e.FinalScore)
                 .HasPrecision(10, 2);
 
+            entity.Property(e => e.FinalMaxScore)
+                .HasPrecision(10, 2);
+
             entity.Property(e => e.GameContentSnapshot)
                 .IsRequired();
 

@@ -62,6 +62,7 @@ file static class Fixtures
             AttemptsUsed = 1,
             MaxAttempts = 3,
             FinalScore = 1,
+            FinalMaxScore = 1,
             StartedAt = DateTimeOffset.UtcNow.AddMinutes(-5),
             CompletedAt = DateTimeOffset.UtcNow,
             NextAvailableAt = null,
@@ -96,6 +97,7 @@ file static class Fixtures
             AttemptsUsed = 3,
             MaxAttempts = 3,
             FinalScore = 0,
+            FinalMaxScore = 1,
             StartedAt = DateTimeOffset.UtcNow.AddMinutes(-20),
             CompletedAt = DateTimeOffset.UtcNow,
             NextAvailableAt = DateTimeOffset.UtcNow.AddHours(24),
@@ -127,6 +129,7 @@ file static class Fixtures
             AttemptsUsed = 2,
             MaxAttempts = 3,
             FinalScore = 0,
+            FinalMaxScore = 1,
             StartedAt = DateTimeOffset.UtcNow.AddMinutes(-18),
             CompletedAt = DateTimeOffset.UtcNow,
             NextAvailableAt = DateTimeOffset.UtcNow.AddHours(24),
@@ -282,11 +285,83 @@ public class IdempotencyTests : DbTestBase
         var svc = NewIngestionService(db);
         await svc.IngestAsync(evt, default);
 
-        evt.FinalScore = 0;
+        evt.FinalMaxScore = 2;
+        evt.Attempts[0].MaxScore = 2;
         var exception = await Assert.ThrowsAsync<EventConflictException>(() => svc.IngestAsync(evt, default));
 
         Assert.Equal(evt.EventId, exception.EventId);
         Assert.Equal(409, exception.StatusCode);
+    }
+
+    [Fact]
+    public async Task DuplicateEventId_WithLegacyPayloadHash_IsStillIdempotent()
+    {
+        await using var db = NewDb();
+        var evt = Fixtures.SuccessEvent();
+        evt.FinalMaxScore = null;
+        var legacyHash = ComputeLegacyHash(evt);
+        db.CompletedSessions.Add(new CompletedGameSession
+        {
+            SessionId = evt.SessionId,
+            GameId = evt.GameId,
+            SpaceId = evt.SpaceId,
+            GameType = GameType.MATH,
+            FinalStatus = SessionFinalStatus.SUCCESS,
+            AttemptsUsed = evt.AttemptsUsed,
+            MaxAttempts = evt.MaxAttempts,
+            FinalScore = evt.FinalScore,
+            FinalMaxScore = null,
+            StartedAt = evt.StartedAt,
+            CompletedAt = evt.CompletedAt,
+            GameContentSnapshot = evt.GameContentSnapshot.GetRawText()
+        });
+        db.IngestedEvents.Add(new IngestedEvent
+        {
+            EventId = evt.EventId,
+            SessionId = evt.SessionId,
+            SchemaVersion = 1,
+            IngestedAt = DateTimeOffset.UtcNow,
+            PayloadHash = legacyHash,
+            FinalStatus = SessionFinalStatus.SUCCESS
+        });
+        await db.SaveChangesAsync();
+
+        var result = await NewIngestionService(db).IngestAsync(evt, default);
+
+        Assert.False(result);
+        Assert.Null((await db.CompletedSessions.SingleAsync()).FinalMaxScore);
+    }
+
+    [Fact]
+    public async Task MissingFinalMaxScore_ForNewEvent_IsRejected()
+    {
+        await using var db = NewDb();
+        var evt = Fixtures.SuccessEvent();
+        evt.FinalMaxScore = null;
+
+        await Assert.ThrowsAsync<InvalidEventPayloadException>(() =>
+            NewIngestionService(db).IngestAsync(evt, default));
+        Assert.Empty(await db.CompletedSessions.ToListAsync());
+    }
+
+    [Fact]
+    public async Task FinalMaxScore_IsPersistedAndReturnedInSessionDetail()
+    {
+        await using var db = NewDb();
+        var evt = Fixtures.SuccessEvent();
+        evt.FinalScore = 3;
+        evt.FinalMaxScore = 4;
+        evt.Attempts[0].Score = 3;
+        evt.Attempts[0].MaxScore = 4;
+        await NewIngestionService(db).IngestAsync(evt, default);
+
+        var detail = await new ProgressService(db).GetSessionDetailAsync(Fixtures.SpaceA, evt.SessionId, default);
+
+        Assert.NotNull(detail);
+        Assert.Equal(3, detail.FinalScore);
+        Assert.Equal(4, detail.FinalMaxScore);
+        Assert.Equal(3, Assert.Single(detail.Attempts).Score);
+        Assert.Equal(4, detail.Attempts[0].MaxScore);
     }
 
     [Fact]
@@ -305,6 +380,22 @@ public class IdempotencyTests : DbTestBase
         Assert.True(r1);
         Assert.False(r2);
         Assert.Equal(1, await db.CompletedSessions.CountAsync());
+    }
+
+    [Fact]
+    public async Task LegacyEventWithNewEventId_CannotReuseCompletedSession()
+    {
+        await using var db = NewDb();
+        var sessionId = Guid.NewGuid();
+        var svc = NewIngestionService(db);
+        await svc.IngestAsync(Fixtures.SuccessEvent(sessionId: sessionId), default);
+
+        var legacy = Fixtures.SuccessEvent(eventId: Guid.NewGuid(), sessionId: sessionId);
+        legacy.FinalMaxScore = null;
+        await Assert.ThrowsAsync<InvalidEventPayloadException>(() => svc.IngestAsync(legacy, default));
+
+        Assert.Equal(1, await db.CompletedSessions.CountAsync());
+        Assert.Equal(1, (await db.CompletedSessions.SingleAsync()).FinalMaxScore);
     }
 
     [Fact]
@@ -342,6 +433,30 @@ public class IdempotencyTests : DbTestBase
         Assert.Equal(1, count);
         Assert.Single(results, result => result);
         Assert.Single(results, result => !result);
+    }
+
+    private static string ComputeLegacyHash(GameSessionCompletedEvent evt)
+    {
+        var raw = JsonSerializer.Serialize(new
+        {
+            evt.EventId,
+            evt.SchemaVersion,
+            evt.SessionId,
+            evt.GameId,
+            evt.SpaceId,
+            evt.GameType,
+            evt.GameTitle,
+            evt.FinalStatus,
+            evt.AttemptsUsed,
+            evt.MaxAttempts,
+            evt.FinalScore,
+            evt.StartedAt,
+            evt.CompletedAt,
+            evt.NextAvailableAt,
+            evt.GameContentSnapshot,
+            evt.Attempts
+        });
+        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(raw)));
     }
 }
 
@@ -391,27 +506,47 @@ public class StatisticsTests : DbTestBase
     [Fact]
     public async Task NormalizedScore_HandlesMultipleMaxScoreScales()
     {
-        // MATH has maxAttempts=3 (1 point each attempt max → score 1 out of 3)
-        // MATCHING hypothetical: maxAttempts=3, score=2
-        // We test that normalized avg uses score/maxAttempts
+        // Scores must be normalized by their per-attempt maxima, not maxAttempts.
         await using var db = NewDb();
         var svc = NewIngestionService(db);
 
         var success = Fixtures.SuccessEvent();
-        success.FinalScore = 1;
+        success.FinalScore = 3;
+        success.FinalMaxScore = 4;
         success.MaxAttempts = 3;
+        success.Attempts[0].Score = 3;
+        success.Attempts[0].MaxScore = 4;
         await svc.IngestAsync(success, default);
 
         var failed = Fixtures.FailedEvent();
-        failed.FinalScore = 0;
+        failed.FinalScore = 1;
+        failed.FinalMaxScore = 2;
         failed.MaxAttempts = 3;
+        failed.Attempts[^1].Score = 1;
+        failed.Attempts[^1].MaxScore = 2;
         await svc.IngestAsync(failed, default);
 
         var progress = new ProgressService(db);
         var summary = await progress.GetSummaryAsync(Fixtures.SpaceA, default);
-        // (1/3 + 0/3) / 2 = 1/6 ≈ 0.1667
-        Assert.True(summary.AverageNormalizedScore > 0);
-        Assert.True(summary.AverageNormalizedScore < 1);
+        // ((3/4) + (1/2)) / 2 = 0.625
+        Assert.Equal(0.625m, summary.AverageNormalizedScore);
+    }
+
+    [Fact]
+    public async Task ZeroFinalMaxScore_IsExcludedWithoutDivisionByZero()
+    {
+        await using var db = NewDb();
+        var ingestion = NewIngestionService(db);
+        var zeroScore = Fixtures.SuccessEvent();
+        zeroScore.FinalScore = 0;
+        zeroScore.FinalMaxScore = 0;
+        zeroScore.Attempts[0].Score = 0;
+        zeroScore.Attempts[0].MaxScore = 0;
+        await ingestion.IngestAsync(zeroScore, default);
+
+        var summary = await new ProgressService(db).GetSummaryAsync(Fixtures.SpaceA, default);
+
+        Assert.Equal(0, summary.AverageNormalizedScore);
     }
 
     [Fact]
@@ -686,6 +821,51 @@ public class AuthorizationTests
 public class PayloadValidationTests : DbTestBase
 {
     [Fact]
+    public async Task CanonicalProducerJson_DeserializesAndPersistsFinalMaximum()
+    {
+        const string payload = """
+            {
+              "EventId": "11111111-1111-1111-1111-111111111111",
+              "SchemaVersion": 1,
+              "SessionId": "11111111-1111-1111-1111-111111111111",
+              "GameId": "22222222-2222-2222-2222-222222222222",
+              "SpaceId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "GameType": "MATH",
+              "GameTitle": "Canonical contract",
+              "FinalStatus": "SUCCESS",
+              "AttemptsUsed": 1,
+              "MaxAttempts": 3,
+              "FinalScore": 3,
+              "FinalMaxScore": 4,
+              "StartedAt": "2025-01-01T10:00:00Z",
+              "CompletedAt": "2025-01-01T10:01:00Z",
+              "NextAvailableAt": null,
+              "GameContentSnapshot": { "expression": "1 + 1" },
+              "Attempts": [
+                {
+                  "AttemptId": "33333333-3333-3333-3333-333333333333",
+                  "AttemptNumber": 1,
+                  "SubmittedAnswer": { "value": 2 },
+                  "Correct": true,
+                  "Score": 3,
+                  "MaxScore": 4,
+                  "SubmittedAt": "2025-01-01T10:01:00Z"
+                }
+              ]
+            }
+            """;
+        var evt = JsonSerializer.Deserialize<GameSessionCompletedEvent>(payload)
+            ?? throw new InvalidOperationException("Canonical event JSON did not deserialize.");
+        await using var db = NewDb();
+        await NewIngestionService(db).IngestAsync(evt, default);
+
+        var session = await db.CompletedSessions.SingleAsync();
+        Assert.Equal(3, session.FinalScore);
+        Assert.Equal(4, session.FinalMaxScore);
+        Assert.Contains("expression", session.GameContentSnapshot);
+    }
+
+    [Fact]
     public async Task MissingEventId_ThrowsInvalidPayload()
     {
         await using var db = NewDb();
@@ -760,6 +940,42 @@ public class PayloadValidationTests : DbTestBase
             SubmittedAnswer = JsonDocument.Parse("{\"value\":2}").RootElement,
             SubmittedAt = evt.CompletedAt
         });
+
+        await Assert.ThrowsAsync<InvalidEventPayloadException>(() =>
+            NewIngestionService(db).IngestAsync(evt, default));
+    }
+
+    [Fact]
+    public async Task NegativeFinalMaxScore_ThrowsInvalidPayload()
+    {
+        await using var db = NewDb();
+        var evt = Fixtures.SuccessEvent();
+        evt.FinalMaxScore = -1;
+
+        await Assert.ThrowsAsync<InvalidEventPayloadException>(() =>
+            NewIngestionService(db).IngestAsync(evt, default));
+    }
+
+    [Fact]
+    public async Task MissingSchemaVersion_ThrowsInvalidPayload()
+    {
+        await using var db = NewDb();
+        var evt = Fixtures.SuccessEvent();
+        evt.SchemaVersion = null;
+
+        await Assert.ThrowsAsync<InvalidEventPayloadException>(() =>
+            NewIngestionService(db).IngestAsync(evt, default));
+    }
+
+    [Fact]
+    public async Task FinalScoreAboveFinalMaxScore_ThrowsInvalidPayload()
+    {
+        await using var db = NewDb();
+        var evt = Fixtures.SuccessEvent();
+        evt.FinalScore = 2;
+        evt.FinalMaxScore = 1;
+        evt.Attempts[0].Score = 2;
+        evt.Attempts[0].MaxScore = 2;
 
         await Assert.ThrowsAsync<InvalidEventPayloadException>(() =>
             NewIngestionService(db).IngestAsync(evt, default));

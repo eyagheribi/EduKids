@@ -15,7 +15,7 @@ namespace Suivi.Api.Application;
 public sealed class GameSessionCompletedEvent
 {
     public Guid EventId { get; set; }
-    public int SchemaVersion { get; set; } = 1;
+    public int? SchemaVersion { get; set; }
     public Guid SessionId { get; set; }
     public Guid GameId { get; set; }
     public Guid SpaceId { get; set; }
@@ -25,6 +25,8 @@ public sealed class GameSessionCompletedEvent
     public int AttemptsUsed { get; set; }
     public int MaxAttempts { get; set; }
     public decimal FinalScore { get; set; }
+    // Nullable so an omitted field can be distinguished from a valid zero score maximum.
+    public decimal? FinalMaxScore { get; set; }
     public DateTimeOffset StartedAt { get; set; }
     public DateTimeOffset CompletedAt { get; set; }
     public DateTimeOffset? NextAvailableAt { get; set; }
@@ -51,7 +53,9 @@ public sealed class SessionIngestionService(SuiviDbContext db, ILogger<SessionIn
     {
         ValidatePayload(evt);
 
-        var payloadHash = ComputeHash(evt);
+        var payloadHash = evt.FinalMaxScore.HasValue
+            ? ComputeHash(evt)
+            : ComputeLegacyHash(evt);
 
         // Idempotency: same EventId → already processed
         var existingEvent = await db.IngestedEvents.FindAsync([evt.EventId], ct);
@@ -68,6 +72,8 @@ public sealed class SessionIngestionService(SuiviDbContext db, ILogger<SessionIn
             logger.LogInformation("Event {EventId} already ingested, skipping (idempotency).", evt.EventId);
             return false;
         }
+
+        ValidateFinalScore(evt);
 
         // Conflict detection: same SessionId with different FinalStatus
         var conflictingEvent = await db.IngestedEvents
@@ -106,6 +112,7 @@ public sealed class SessionIngestionService(SuiviDbContext db, ILogger<SessionIn
             AttemptsUsed = evt.AttemptsUsed,
             MaxAttempts = evt.MaxAttempts,
             FinalScore = evt.FinalScore,
+            FinalMaxScore = evt.FinalMaxScore,
             StartedAt = evt.StartedAt.ToUniversalTime(),
             CompletedAt = evt.CompletedAt.ToUniversalTime(),
             NextAvailableAt = evt.NextAvailableAt?.ToUniversalTime(),
@@ -127,7 +134,7 @@ public sealed class SessionIngestionService(SuiviDbContext db, ILogger<SessionIn
         {
             EventId = evt.EventId,
             SessionId = evt.SessionId,
-            SchemaVersion = evt.SchemaVersion,
+            SchemaVersion = evt.SchemaVersion!.Value,
             IngestedAt = DateTimeOffset.UtcNow,
             PayloadHash = payloadHash,
             FinalStatus = finalStatus
@@ -193,10 +200,31 @@ public sealed class SessionIngestionService(SuiviDbContext db, ILogger<SessionIn
                 throw new InvalidEventPayloadException("Each attempt must have a unique, positive attemptNumber.");
             if (attempt.SubmittedAnswer.ValueKind == JsonValueKind.Undefined)
                 throw new InvalidEventPayloadException("submittedAnswer is required for every attempt.");
+            if (attempt.MaxScore < 0 || attempt.Score < 0 || attempt.Score > attempt.MaxScore)
+                throw new InvalidEventPayloadException("Attempt score must be between zero and maxScore.");
         }
 
         ParseGameType(evt.GameType);
         ParseFinalStatus(evt.FinalStatus);
+    }
+
+    private static void ValidateFinalScore(GameSessionCompletedEvent evt)
+    {
+        if (!evt.FinalMaxScore.HasValue)
+            throw new InvalidEventPayloadException("finalMaxScore is required.");
+        if (evt.FinalScore < 0 || evt.FinalMaxScore.Value < 0 || evt.FinalScore > evt.FinalMaxScore.Value)
+            throw new InvalidEventPayloadException("finalScore must be between zero and finalMaxScore.");
+
+        if (evt.Attempts.Count == 0)
+        {
+            if (evt.FinalScore != 0 || evt.FinalMaxScore.Value != 0)
+                throw new InvalidEventPayloadException("An event without attempts must have a zero final score and maximum.");
+            return;
+        }
+
+        var lastAttempt = evt.Attempts.MaxBy(a => a.AttemptNumber)!;
+        if (evt.FinalScore != lastAttempt.Score || evt.FinalMaxScore.Value != lastAttempt.MaxScore)
+            throw new InvalidEventPayloadException("finalScore and finalMaxScore must match the last attempt.");
     }
 
     private static GameType ParseGameType(string value)
@@ -216,6 +244,30 @@ public sealed class SessionIngestionService(SuiviDbContext db, ILogger<SessionIn
     private static string ComputeHash(GameSessionCompletedEvent evt)
     {
         var raw = JsonSerializer.Serialize(evt);
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(raw)));
+    }
+
+    private static string ComputeLegacyHash(GameSessionCompletedEvent evt)
+    {
+        var raw = JsonSerializer.Serialize(new
+        {
+            evt.EventId,
+            evt.SchemaVersion,
+            evt.SessionId,
+            evt.GameId,
+            evt.SpaceId,
+            evt.GameType,
+            evt.GameTitle,
+            evt.FinalStatus,
+            evt.AttemptsUsed,
+            evt.MaxAttempts,
+            evt.FinalScore,
+            evt.StartedAt,
+            evt.CompletedAt,
+            evt.NextAvailableAt,
+            evt.GameContentSnapshot,
+            evt.Attempts
+        });
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(raw)));
     }
 }

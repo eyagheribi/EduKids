@@ -29,6 +29,10 @@ namespace Suivi.Api.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CompletedAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<decimal?>("FinalMaxScore")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("TEXT");
+
                     b.Property<decimal>("FinalScore")
                         .HasPrecision(10, 2)
                         .HasColumnType("TEXT");
