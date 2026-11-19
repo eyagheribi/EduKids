@@ -1,6 +1,6 @@
 # Activites.Api
 
-Service .NET 8 pour gérer les jeux éducatifs, leur contenu, les sessions et les tentatives. La base SQLite locale est créée au démarrage (`activites.db`, `ConnectionStrings:Activities`). `EnsureCreated` convient au démarrage du prototype ; pour déployer des évolutions de schéma, remplacer ce mécanisme par des migrations EF Core versionnées.
+Service .NET 8 pour gérer les jeux éducatifs, leur contenu, les sessions et les tentatives. La base SQLite locale est créée au démarrage (`activites.db`, `ConnectionStrings:Activities`). Le démarrage applique aussi des changements de schéma SQLite additifs nécessaires aux deadlines et au contrôle de concurrence. Ce n'est pas un mécanisme général de migrations : les évolutions de schéma ultérieures doivent passer par des migrations EF Core versionnées.
 
 ## État des intégrations
 
@@ -45,7 +45,7 @@ Contenus parent : MATH `{ "expression":"12 / 3 + 5 * (2 - 1)" }`; MATCHING `{ "p
 
 La génération de jeu est retournée dans la réponse de démarrage. Réponses attendues ne sont retournées qu'après un échec final. Math utilise `decimal`, invariant culture, évaluations de gauche à droite pour opérateurs de même priorité et tolérance `0.000001`.
 
-Les règles de session sont configurées par `GameSessions` dans `appsettings.json`: trois tentatives, cinq minutes d'inactivité à partir de la première réponse incorrecte, puis vingt-quatre heures de cooldown après `FAILED` ou `UNFINISHED`. Chaque réponse incorrecte avant la dernière redémarre le délai. Les sessions ouvertes sans réponse n'ont pas de deadline.
+Les règles de session sont configurées par `GameSessions` dans `appsettings.json`: trois tentatives, cinq minutes d'inactivité à partir de la première réponse incorrecte, vingt-quatre heures de cooldown après `FAILED` ou `UNFINISHED`, et un balayage périodique toutes les quinze secondes. Chaque réponse incorrecte avant la dernière redémarre le délai. Les sessions ouvertes sans réponse n'ont pas de deadline. Les routes de reprise et de soumission vérifient elles aussi la deadline et effectuent la transition immédiatement si nécessaire.
 
 ## Exécution
 

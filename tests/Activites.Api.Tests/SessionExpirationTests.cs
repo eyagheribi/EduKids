@@ -95,6 +95,31 @@ public class SessionExpirationTests
         await Assert.ThrowsAsync<DomainException>(() => Wrong(service, session.Id, 2));
     }
 
+    [Fact]
+    public async Task LateSubmissionExpiresSessionEvenBeforeBackgroundSweep()
+    {
+        var (service, clock, catalog, gameId) = CreateService();
+        var session = await service.Start(SpaceId, gameId, Parent(), default);
+        await Wrong(service, session.Id, 1);
+        clock.Advance(TimeSpan.FromMinutes(5));
+
+        await Assert.ThrowsAsync<DomainException>(() => Wrong(service, session.Id, 2));
+        Assert.Equal(SessionStatus.UNFINISHED, (await catalog.GetSession(session.Id, default))!.Status);
+    }
+
+    [Fact]
+    public async Task ExpirationSweepIsIdempotent()
+    {
+        var (service, clock, catalog, gameId) = CreateService();
+        var session = await service.Start(SpaceId, gameId, Parent(), default);
+        await Wrong(service, session.Id, 1);
+        clock.Advance(TimeSpan.FromMinutes(5));
+
+        Assert.Equal(1, await service.ExpireDueSessions(default));
+        Assert.Equal(0, await service.ExpireDueSessions(default));
+        Assert.Equal(SessionStatus.UNFINISHED, (await catalog.GetSession(session.Id, default))!.Status);
+    }
+
     private sealed class FakeClock(DateTimeOffset now) : IClock
     {
         public DateTimeOffset UtcNow { get; private set; } = now;

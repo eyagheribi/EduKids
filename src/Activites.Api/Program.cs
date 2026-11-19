@@ -19,6 +19,7 @@ builder.Services.AddDbContext<ActivitiesDbContext>(options => options.UseSqlite(
 builder.Services.AddScoped<IGameCatalog, EfGameCatalog>();
 builder.Services.AddSingleton<IProgressPublisher, NoopProgressPublisher>();
 builder.Services.AddScoped<GameService>();
+builder.Services.AddHostedService<SessionExpirationWorker>();
 
 if (builder.Environment.IsDevelopment())
 {
@@ -78,7 +79,8 @@ public sealed record PlayableGame(Guid GameId, string Type, JsonElement Content)
 public sealed record SessionDto(Guid Id, Guid GameId, Guid SpaceId, string Status, int AttemptsUsed, int MaxAttempts, DateTimeOffset? NextAvailableAt, PlayableGame? Game, DateTimeOffset? InactivityDeadlineAt);
 public sealed record AttemptDto(Guid Id, int Number, bool Correct, int Score, int MaxScore, DateTimeOffset SubmittedAt, int AttemptsRemaining, string Status, JsonElement? Correction, DateTimeOffset? NextAvailableAt);
 public sealed record AvailabilityDto(bool Available, DateTimeOffset? NextAvailableAt);
-public sealed class GameSessionOptions { public int MaxAttempts { get; set; } = 3; public int InactivityTimeoutMinutes { get; set; } = 5; public int FailureCooldownHours { get; set; } = 24; }
+public sealed record GameSessionCompletedEvent(Guid EventId, Guid SessionId, Guid GameId, Guid SpaceId, string GameType, string FinalStatus, DateTimeOffset CompletedAt, DateTimeOffset? NextAvailableAt);
+public sealed class GameSessionOptions { public int MaxAttempts { get; set; } = 3; public int InactivityTimeoutMinutes { get; set; } = 5; public int FailureCooldownHours { get; set; } = 24; public int ExpirationPollingIntervalSeconds { get; set; } = 15; }
 public sealed record Evaluation(bool Correct, int Score, int MaxScore, object? Correction);
 public sealed record PairInput(string Left, string Right);
 public sealed record PairView(Guid Id, string Left);
@@ -181,13 +183,13 @@ public sealed class SessionRecord
 {
     public Guid Id { get; init; } = Guid.NewGuid(); public Guid SpaceId { get; init; } public GameRecord Game { get; init; } = null!; public DateTimeOffset CreatedAt { get; init; }
     public SessionStatus Status { get; set; } = SessionStatus.ACTIVE; public DateTimeOffset? CompletedAt { get; set; } public DateTimeOffset? NextAvailableAt { get; set; } public DateTimeOffset? InactivityDeadlineAt { get; set; }
-    public string PlayJson { get; set; } = "{}"; public List<AttemptRecord> Attempts { get; } = []; public Dictionary<string, AttemptDto> Idempotency { get; } = new(StringComparer.Ordinal);
+    public int Version { get; set; } = -1; public string PlayJson { get; set; } = "{}"; public List<AttemptRecord> Attempts { get; } = []; public Dictionary<string, AttemptDto> Idempotency { get; } = new(StringComparer.Ordinal);
 }
 public sealed record AttemptRecord(int Number, string Answer, Evaluation Evaluation, DateTimeOffset At);
 public interface IGameCatalog
 {
     Task<GameRecord?> Find(Guid space, Guid game, CancellationToken ct); Task<List<GameRecord>> List(Guid space, CancellationToken ct); Task Save(GameRecord game, CancellationToken ct); Task Remove(GameRecord game, CancellationToken ct);
-    Task<SessionRecord?> GetSession(Guid id, CancellationToken ct); Task<List<SessionRecord>> Sessions(Guid space, Guid game, CancellationToken ct); Task SaveSession(SessionRecord session, CancellationToken ct);
+    Task<SessionRecord?> GetSession(Guid id, CancellationToken ct); Task<List<SessionRecord>> Sessions(Guid space, Guid game, CancellationToken ct); Task<List<SessionRecord>> ActiveSessionsWithDeadline(CancellationToken ct); Task<bool> SaveSession(SessionRecord session, CancellationToken ct); Task<bool> TryExpireSession(Guid id, DateTimeOffset expectedDeadline, DateTimeOffset completedAt, DateTimeOffset nextAvailableAt, CancellationToken ct);
 }
 public sealed class InMemoryGameCatalog : IGameCatalog
 {
@@ -198,7 +200,13 @@ public sealed class InMemoryGameCatalog : IGameCatalog
     public Task Remove(GameRecord g, CancellationToken ct) { games.TryRemove(g.Id, out _); return Task.CompletedTask; }
     public Task<SessionRecord?> GetSession(Guid id, CancellationToken ct) => Task.FromResult(sessions.GetValueOrDefault(id));
     public Task<List<SessionRecord>> Sessions(Guid s, Guid g, CancellationToken ct) => Task.FromResult(sessions.Values.Where(x => x.SpaceId == s && x.Game.Id == g).ToList());
-    public Task SaveSession(SessionRecord s, CancellationToken ct) { sessions[s.Id] = s; return Task.CompletedTask; }
+    public Task<List<SessionRecord>> ActiveSessionsWithDeadline(CancellationToken ct) => Task.FromResult(sessions.Values.Where(x => x.Status == SessionStatus.ACTIVE && x.InactivityDeadlineAt != null).ToList());
+    public Task<bool> SaveSession(SessionRecord s, CancellationToken ct) { lock(s) { if(s.Version < 0) s.Version=0; else s.Version++; sessions[s.Id] = s; return Task.FromResult(true); } }
+    public Task<bool> TryExpireSession(Guid id, DateTimeOffset deadline, DateTimeOffset completedAt, DateTimeOffset nextAvailableAt, CancellationToken ct)
+    {
+        if(!sessions.TryGetValue(id,out var s)) return Task.FromResult(false);
+        lock(s) { if(s.Status!=SessionStatus.ACTIVE||s.InactivityDeadlineAt!=deadline)return Task.FromResult(false);s.Status=SessionStatus.UNFINISHED;s.CompletedAt=completedAt;s.NextAvailableAt=nextAvailableAt;s.InactivityDeadlineAt=null;s.Version++;return Task.FromResult(true); }
+    }
 }
 
 public sealed class ActivitiesDbContext(DbContextOptions<ActivitiesDbContext> options) : DbContext(options)
@@ -212,6 +220,8 @@ public sealed class ActivitiesDbContext(DbContextOptions<ActivitiesDbContext> op
         model.Entity<SessionRow>().HasKey(x => x.Id);
         model.Entity<SessionRow>().HasIndex(x => new { x.SpaceId, x.GameId, x.Status });
         model.Entity<SessionRow>().HasIndex(x => new { x.Status, x.InactivityDeadlineAt });
+        model.Entity<SessionRow>().HasIndex(x => new { x.SpaceId, x.GameId }).IsUnique().HasFilter("\"Status\" = 'ACTIVE'").HasDatabaseName("IX_Sessions_OneActivePerSpaceGame");
+        model.Entity<SessionRow>().Property(x => x.Version).IsConcurrencyToken();
         model.Entity<SessionRow>().HasOne<GameRow>().WithMany().HasForeignKey(x => x.GameId).OnDelete(DeleteBehavior.Restrict);
     }
 }
@@ -235,25 +245,59 @@ public static class ActivitiesSchemaUpgrade
                 alter.CommandText = "ALTER TABLE Sessions ADD COLUMN InactivityDeadlineAt TEXT NULL";
                 await alter.ExecuteNonQueryAsync(cancellationToken);
             }
+            if (!columns.Contains(nameof(SessionRow.Version)))
+            {
+                await using var alter = db.Database.GetDbConnection().CreateCommand();
+                alter.CommandText = "ALTER TABLE Sessions ADD COLUMN Version INTEGER NOT NULL DEFAULT 0";
+                await alter.ExecuteNonQueryAsync(cancellationToken);
+            }
             await using var index = db.Database.GetDbConnection().CreateCommand();
             index.CommandText = "CREATE INDEX IF NOT EXISTS IX_Sessions_Status_InactivityDeadlineAt ON Sessions (Status, InactivityDeadlineAt)";
             await index.ExecuteNonQueryAsync(cancellationToken);
+            await using var activeIndex = db.Database.GetDbConnection().CreateCommand();
+            activeIndex.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS IX_Sessions_OneActivePerSpaceGame ON Sessions (SpaceId, GameId) WHERE Status = 'ACTIVE'";
+            await activeIndex.ExecuteNonQueryAsync(cancellationToken);
         }
         finally { await db.Database.CloseConnectionAsync(); }
     }
 }
 public sealed class GameRow { public Guid Id { get; set; } public Guid SpaceId { get; set; } public string Type { get; set; } = ""; public string? Title { get; set; } public string Content { get; set; } = ""; public DateTimeOffset CreatedAt { get; set; } public DateTimeOffset UpdatedAt { get; set; } }
-public sealed class SessionRow { public Guid Id { get; set; } public Guid SpaceId { get; set; } public Guid GameId { get; set; } public string Status { get; set; } = "ACTIVE"; public DateTimeOffset CreatedAt { get; set; } public DateTimeOffset? CompletedAt { get; set; } public DateTimeOffset? NextAvailableAt { get; set; } public DateTimeOffset? InactivityDeadlineAt { get; set; } public string PlayJson { get; set; } = "{}"; public string AttemptsJson { get; set; } = "[]"; public string IdempotencyJson { get; set; } = "{}"; }
+public sealed class SessionRow { public Guid Id { get; set; } public Guid SpaceId { get; set; } public Guid GameId { get; set; } public string Status { get; set; } = "ACTIVE"; public DateTimeOffset CreatedAt { get; set; } public DateTimeOffset? CompletedAt { get; set; } public DateTimeOffset? NextAvailableAt { get; set; } public DateTimeOffset? InactivityDeadlineAt { get; set; } public int Version { get; set; } public string PlayJson { get; set; } = "{}"; public string AttemptsJson { get; set; } = "[]"; public string IdempotencyJson { get; set; } = "{}"; }
 public sealed class EfGameCatalog(ActivitiesDbContext db) : IGameCatalog
 {
-    public async Task<GameRecord?> Find(Guid space, Guid game, CancellationToken ct) { var x=await db.Games.SingleOrDefaultAsync(x=>x.Id==game&&x.SpaceId==space,ct); return x==null?null:ToRecord(x); }
-    public async Task<List<GameRecord>> List(Guid space,CancellationToken ct)=>(await db.Games.Where(x=>x.SpaceId==space).ToListAsync(ct)).Select(ToRecord).ToList();
+    public async Task<GameRecord?> Find(Guid space, Guid game, CancellationToken ct) { var x=await db.Games.AsNoTracking().SingleOrDefaultAsync(x=>x.Id==game&&x.SpaceId==space,ct); return x==null?null:ToRecord(x); }
+    public async Task<List<GameRecord>> List(Guid space,CancellationToken ct)=>(await db.Games.AsNoTracking().Where(x=>x.SpaceId==space).ToListAsync(ct)).Select(ToRecord).ToList();
     public async Task Save(GameRecord g,CancellationToken ct) { var x=await db.Games.FindAsync([g.Id],ct); if(x==null){x=new GameRow{Id=g.Id};db.Games.Add(x);} x.SpaceId=g.SpaceId;x.Type=g.Type.ToString();x.Title=g.Title;x.Content=g.Content;x.CreatedAt=g.CreatedAt;x.UpdatedAt=g.UpdatedAt;await db.SaveChangesAsync(ct); }
     public async Task Remove(GameRecord g,CancellationToken ct) { var x=await db.Games.FindAsync([g.Id],ct);if(x!=null){db.Games.Remove(x);await db.SaveChangesAsync(ct);} }
-    public async Task<SessionRecord?> GetSession(Guid id,CancellationToken ct) { var x=await db.Sessions.SingleOrDefaultAsync(x=>x.Id==id,ct);return x==null?null:await ToSession(x,ct); }
-    public async Task<List<SessionRecord>> Sessions(Guid space,Guid game,CancellationToken ct) { var rows=await db.Sessions.Where(x=>x.SpaceId==space&&x.GameId==game).ToListAsync(ct);var result=new List<SessionRecord>();foreach(var row in rows)result.Add((await ToSession(row,ct))!);return result; }
-    public async Task SaveSession(SessionRecord s,CancellationToken ct) { var x=await db.Sessions.FindAsync([s.Id],ct);if(x==null){x=new SessionRow{Id=s.Id};db.Sessions.Add(x);}x.SpaceId=s.SpaceId;x.GameId=s.Game.Id;x.Status=s.Status.ToString();x.CreatedAt=s.CreatedAt;x.CompletedAt=s.CompletedAt;x.NextAvailableAt=s.NextAvailableAt;x.InactivityDeadlineAt=s.InactivityDeadlineAt;x.PlayJson=s.PlayJson;x.AttemptsJson=JsonSerializer.Serialize(s.Attempts);x.IdempotencyJson=JsonSerializer.Serialize(s.Idempotency);await db.SaveChangesAsync(ct); }
-    private async Task<SessionRecord?> ToSession(SessionRow r,CancellationToken ct) { var g=await db.Games.SingleOrDefaultAsync(g=>g.Id==r.GameId,ct);if(g==null)return null;var s=new SessionRecord{Id=r.Id,SpaceId=r.SpaceId,Game=ToRecord(g),CreatedAt=r.CreatedAt,Status=Enum.Parse<SessionStatus>(r.Status),CompletedAt=r.CompletedAt,NextAvailableAt=r.NextAvailableAt,InactivityDeadlineAt=r.InactivityDeadlineAt,PlayJson=r.PlayJson};s.Attempts.AddRange(JsonSerializer.Deserialize<List<AttemptRecord>>(r.AttemptsJson)??[]);foreach(var kv in JsonSerializer.Deserialize<Dictionary<string,AttemptDto>>(r.IdempotencyJson)??[])s.Idempotency[kv.Key]=kv.Value;return s; }
+    public async Task<SessionRecord?> GetSession(Guid id,CancellationToken ct) { var x=await db.Sessions.AsNoTracking().SingleOrDefaultAsync(x=>x.Id==id,ct);return x==null?null:await ToSession(x,ct); }
+    public async Task<List<SessionRecord>> Sessions(Guid space,Guid game,CancellationToken ct) { var rows=await db.Sessions.AsNoTracking().Where(x=>x.SpaceId==space&&x.GameId==game).ToListAsync(ct);var result=new List<SessionRecord>();foreach(var row in rows)result.Add((await ToSession(row,ct))!);return result; }
+    public async Task<List<SessionRecord>> ActiveSessionsWithDeadline(CancellationToken ct) { var rows=await db.Sessions.AsNoTracking().Where(x=>x.Status=="ACTIVE"&&x.InactivityDeadlineAt!=null).ToListAsync(ct);var result=new List<SessionRecord>();foreach(var row in rows)if((await ToSession(row,ct)) is { } session)result.Add(session);return result; }
+    public async Task<bool> SaveSession(SessionRecord s,CancellationToken ct)
+    {
+        if(s.Version<0)
+        {
+            var inserted=new SessionRow{Id=s.Id,SpaceId=s.SpaceId,GameId=s.Game.Id,Status=s.Status.ToString(),CreatedAt=s.CreatedAt,CompletedAt=s.CompletedAt,NextAvailableAt=s.NextAvailableAt,InactivityDeadlineAt=s.InactivityDeadlineAt,PlayJson=s.PlayJson,AttemptsJson=JsonSerializer.Serialize(s.Attempts),IdempotencyJson=JsonSerializer.Serialize(s.Idempotency),Version=0};
+            db.Sessions.Add(inserted);
+            try { await db.SaveChangesAsync(ct); s.Version=0; return true; }
+            catch(DbUpdateException) { db.Entry(inserted).State=EntityState.Detached; return false; }
+        }
+        var expected=s.Version; var next=expected+1; var attemptsJson=JsonSerializer.Serialize(s.Attempts); var idempotencyJson=JsonSerializer.Serialize(s.Idempotency);
+        var changed=await db.Sessions.Where(x=>x.Id==s.Id&&x.Version==expected&&x.Status=="ACTIVE").ExecuteUpdateAsync(setters=>setters
+            .SetProperty(x=>x.Status,s.Status.ToString()).SetProperty(x=>x.CompletedAt,s.CompletedAt).SetProperty(x=>x.NextAvailableAt,s.NextAvailableAt)
+            .SetProperty(x=>x.InactivityDeadlineAt,s.InactivityDeadlineAt).SetProperty(x=>x.PlayJson,s.PlayJson)
+            .SetProperty(x=>x.AttemptsJson,attemptsJson).SetProperty(x=>x.IdempotencyJson,idempotencyJson)
+            .SetProperty(x=>x.Version,next),ct);
+        if(changed==1)s.Version=next;
+        return changed==1;
+    }
+    public async Task<bool> TryExpireSession(Guid id,DateTimeOffset expectedDeadline,DateTimeOffset completedAt,DateTimeOffset nextAvailableAt,CancellationToken ct)
+    {
+        var changed=await db.Sessions.Where(x=>x.Id==id&&x.Status=="ACTIVE"&&x.InactivityDeadlineAt==expectedDeadline).ExecuteUpdateAsync(setters=>setters
+            .SetProperty(x=>x.Status,SessionStatus.UNFINISHED.ToString()).SetProperty(x=>x.CompletedAt,completedAt).SetProperty(x=>x.NextAvailableAt,nextAvailableAt)
+            .SetProperty(x=>x.InactivityDeadlineAt,(DateTimeOffset?)null).SetProperty(x=>x.Version,x=>x.Version+1),ct);
+        return changed==1;
+    }
+    private async Task<SessionRecord?> ToSession(SessionRow r,CancellationToken ct) { var g=await db.Games.SingleOrDefaultAsync(g=>g.Id==r.GameId,ct);if(g==null)return null;var s=new SessionRecord{Id=r.Id,SpaceId=r.SpaceId,Game=ToRecord(g),CreatedAt=r.CreatedAt,Status=Enum.Parse<SessionStatus>(r.Status),CompletedAt=r.CompletedAt,NextAvailableAt=r.NextAvailableAt,InactivityDeadlineAt=r.InactivityDeadlineAt,PlayJson=r.PlayJson,Version=r.Version};s.Attempts.AddRange(JsonSerializer.Deserialize<List<AttemptRecord>>(r.AttemptsJson)??[]);foreach(var kv in JsonSerializer.Deserialize<Dictionary<string,AttemptDto>>(r.IdempotencyJson)??[])s.Idempotency[kv.Key]=kv.Value;return s; }
     private static GameRecord ToRecord(GameRow x)=>new(x.Id,x.SpaceId,Enum.Parse<GameType>(x.Type),x.Title,x.Content,x.CreatedAt,x.UpdatedAt);
 }
 public interface ISpaceAccess { Task<bool> CanAccess(Guid spaceId, ClaimsPrincipal user, string activityType, CancellationToken ct); }
@@ -276,39 +320,57 @@ public sealed class GameService(IGameCatalog catalog, IEnumerable<IGameEngine> e
     public async Task<SessionDto> Start(Guid s,Guid id,ClaimsPrincipal u,CancellationToken ct)
     {
         var g=await Required(s,id,ct); await Ensure(s,u,g.Type,ct); var existing=await catalog.Sessions(s,id,ct);
-        foreach(var existingSession in existing.Where(x=>x.Status==SessionStatus.ACTIVE)) await ExpireIfDue(existingSession,ct);
+        for(var i=0;i<existing.Count;i++) if(existing[i].Status==SessionStatus.ACTIVE) existing[i]=await ExpireIfDue(existing[i],ct);
         var active=existing.FirstOrDefault(x=>x.Status==SessionStatus.ACTIVE); if(active!=null) return SessionDtoOf(active,true);
         var blocked=existing.Where(x=>(x.Status==SessionStatus.FAILED||x.Status==SessionStatus.UNFINISHED)&&x.NextAvailableAt>clock.UtcNow).OrderByDescending(x=>x.NextAvailableAt).FirstOrDefault(); if(blocked!=null) throw new DomainException($"Jeu indisponible jusqu'à {blocked.NextAvailableAt:O}.",409);
-        var session=new SessionRecord{SpaceId=s,Game=g,CreatedAt=clock.UtcNow,PlayJson=JsonSerializer.Serialize(Engine(g.Type).Generate(JsonDocument.Parse(g.Content).RootElement))}; await catalog.SaveSession(session,ct); return SessionDtoOf(session,true);
+        var session=new SessionRecord{SpaceId=s,Game=g,CreatedAt=clock.UtcNow,PlayJson=JsonSerializer.Serialize(Engine(g.Type).Generate(JsonDocument.Parse(g.Content).RootElement))};
+        if(!await catalog.SaveSession(session,ct))
+        {
+            var concurrent=(await catalog.Sessions(s,id,ct)).FirstOrDefault(x=>x.Status==SessionStatus.ACTIVE);
+            if(concurrent!=null) return SessionDtoOf(concurrent,true);
+            throw new DomainException("La session a été créée simultanément. Réessayez.",409);
+        }
+        return SessionDtoOf(session,true);
     }
-    public async Task<AvailabilityDto> Availability(Guid s,Guid id,ClaimsPrincipal u,CancellationToken ct) { var g=await Required(s,id,ct); await Ensure(s,u,g.Type,ct); var sessions=await catalog.Sessions(s,id,ct); foreach(var session in sessions.Where(x=>x.Status==SessionStatus.ACTIVE)) await ExpireIfDue(session,ct); var wait=sessions.Where(x=>(x.Status==SessionStatus.FAILED||x.Status==SessionStatus.UNFINISHED)&&x.NextAvailableAt>clock.UtcNow).OrderByDescending(x=>x.NextAvailableAt).FirstOrDefault(); return new(wait==null,wait?.NextAvailableAt); }
-    public async Task<SessionDto> Session(Guid s,Guid id,ClaimsPrincipal u,CancellationToken ct) { var x=await catalog.GetSession(id,ct); if(x==null||x.SpaceId!=s) throw new DomainException("Session introuvable.",404); await Ensure(s,u,x.Game.Type,ct); await ExpireIfDue(x,ct); return SessionDtoOf(x,x.Status==SessionStatus.ACTIVE); }
+    public async Task<AvailabilityDto> Availability(Guid s,Guid id,ClaimsPrincipal u,CancellationToken ct) { var g=await Required(s,id,ct); await Ensure(s,u,g.Type,ct); var sessions=await catalog.Sessions(s,id,ct); for(var i=0;i<sessions.Count;i++)if(sessions[i].Status==SessionStatus.ACTIVE)sessions[i]=await ExpireIfDue(sessions[i],ct); var wait=sessions.Where(x=>(x.Status==SessionStatus.FAILED||x.Status==SessionStatus.UNFINISHED)&&x.NextAvailableAt>clock.UtcNow).OrderByDescending(x=>x.NextAvailableAt).FirstOrDefault(); return new(wait==null,wait?.NextAvailableAt); }
+    public async Task<SessionDto> Session(Guid s,Guid id,ClaimsPrincipal u,CancellationToken ct) { var x=await catalog.GetSession(id,ct); if(x==null||x.SpaceId!=s) throw new DomainException("Session introuvable.",404); await Ensure(s,u,x.Game.Type,ct); x=await ExpireIfDue(x,ct); return SessionDtoOf(x,x.Status==SessionStatus.ACTIVE); }
     public async Task<AttemptDto> Submit(Guid s,Guid sid,SubmitAttemptRequest r,ClaimsPrincipal u,CancellationToken ct)
     {
-        if(string.IsNullOrWhiteSpace(r.IdempotencyKey)||r.IdempotencyKey.Length>128) throw new DomainException("Un IdempotencyKey valide est requis."); var x=await catalog.GetSession(sid,ct); if(x==null||x.SpaceId!=s) throw new DomainException("Session introuvable.",404); await Ensure(s,u,x.Game.Type,ct); await ExpireIfDue(x,ct);
-        AttemptDto dto; object eventMessage;
+        if(string.IsNullOrWhiteSpace(r.IdempotencyKey)||r.IdempotencyKey.Length>128) throw new DomainException("Un IdempotencyKey valide est requis."); var x=await catalog.GetSession(sid,ct); if(x==null||x.SpaceId!=s) throw new DomainException("Session introuvable.",404); await Ensure(s,u,x.Game.Type,ct); x=await ExpireIfDue(x,ct);
+        AttemptDto dto;
         lock(x) { if(x.Idempotency.TryGetValue(r.IdempotencyKey,out var cached)) return cached; if(x.Status!=SessionStatus.ACTIVE) throw new DomainException("Cette session est terminée.",409); if(x.Attempts.Count>=MaxAttempts) throw new DomainException("Limite de tentatives atteinte.",409);
             var result=Engine(x.Game.Type).Evaluate(JsonDocument.Parse(x.Game.Content).RootElement,r.Answer,JsonDocument.Parse(x.PlayJson).RootElement); var now=clock.UtcNow; var number=x.Attempts.Count+1; x.Attempts.Add(new(number,r.Answer.GetRawText(),result,now));
             if(result.Correct) { x.Status=SessionStatus.SUCCESS; x.CompletedAt=now; x.NextAvailableAt=null; x.InactivityDeadlineAt=null; }
             else if(number==MaxAttempts) { x.Status=SessionStatus.FAILED; x.CompletedAt=now; x.NextAvailableAt=now+Cooldown; x.InactivityDeadlineAt=null; }
             else { x.InactivityDeadlineAt=now+InactivityTimeout; }
             dto=new AttemptDto(Guid.NewGuid(),number,result.Correct,result.Score,result.MaxScore,now,MaxAttempts-number,x.Status.ToString(),x.Status==SessionStatus.FAILED?JsonSerializer.SerializeToElement(result.Correction):null,x.NextAvailableAt); x.Idempotency[r.IdempotencyKey]=dto;
-            eventMessage=new { sessionId=x.Id,spaceId=s,gameId=x.Game.Id,attempt=number,answer=r.Answer,result=result.Correct,score=result.Score,status=x.Status.ToString(),occurredAt=now }; }
-        await catalog.SaveSession(x,ct); await publisher.Publish(eventMessage,ct); return dto;
-    }
-    private async Task<bool> ExpireIfDue(SessionRecord session,CancellationToken ct)
-    {
-        lock(session)
-        {
-            if(session.Status!=SessionStatus.ACTIVE||session.InactivityDeadlineAt is not { } deadline||deadline>clock.UtcNow) return false;
-            session.Status=SessionStatus.UNFINISHED;
-            session.CompletedAt=deadline;
-            session.NextAvailableAt=deadline+Cooldown;
-            session.InactivityDeadlineAt=null;
         }
-        await catalog.SaveSession(session,ct);
-        return true;
+        if(!await catalog.SaveSession(x,ct))
+        {
+            var current=await catalog.GetSession(x.Id,ct);
+            if(current?.Idempotency.TryGetValue(r.IdempotencyKey,out var duplicate)==true) return duplicate;
+            throw new DomainException("La session a été modifiée par une autre requête. Réessayez.",409);
+        }
+        if(x.Status!=SessionStatus.ACTIVE) await PublishCompletion(x,ct);
+        return dto;
     }
+    public async Task<int> ExpireDueSessions(CancellationToken ct)
+    {
+        var sessions=await catalog.ActiveSessionsWithDeadline(ct); var expired=0;
+        foreach(var session in sessions) if(session.InactivityDeadlineAt<=clock.UtcNow) { var updated=await ExpireIfDue(session,ct); if(updated.Status==SessionStatus.UNFINISHED) expired++; }
+        return expired;
+    }
+    private async Task<SessionRecord> ExpireIfDue(SessionRecord session,CancellationToken ct)
+    {
+        if(session.Status!=SessionStatus.ACTIVE||session.InactivityDeadlineAt is not { } deadline||deadline>clock.UtcNow) return session;
+        var transitioned=await catalog.TryExpireSession(session.Id,deadline,deadline,deadline+Cooldown,ct);
+        var updated=await catalog.GetSession(session.Id,ct) ?? session;
+        if(transitioned) await PublishCompletion(updated,ct);
+        return updated;
+    }
+    private Task PublishCompletion(SessionRecord session,CancellationToken ct) => session.CompletedAt is { } completedAt
+        ? publisher.Publish(new GameSessionCompletedEvent(session.Id,session.Id,session.Game.Id,session.SpaceId,session.Game.Type.ToString(),session.Status.ToString(),completedAt,session.NextAvailableAt),ct)
+        : Task.CompletedTask;
     private async Task<GameRecord> Required(Guid s,Guid id,CancellationToken ct)=>await catalog.Find(s,id,ct)??throw new DomainException("Jeu introuvable.",404);
     private static string NormalizeContent(GameType t,JsonElement c) => t==GameType.MATCHING ? JsonSerializer.Serialize(new { pairs=c.GetProperty("pairs").EnumerateArray().Select(p=>new { id=Guid.NewGuid(), left=p.GetProperty("left").GetString(), right=p.GetProperty("right").GetString() }) }) : c.GetRawText();
     private static GameDto Dto(GameRecord g)=>new(g.Id,g.SpaceId,g.Type.ToString(),g.Title,JsonDocument.Parse(g.Content).RootElement.Clone(),g.CreatedAt,g.UpdatedAt);
@@ -329,6 +391,30 @@ public sealed class GameService(IGameCatalog catalog, IEnumerable<IGameEngine> e
         return new(x.Id,x.Game.Id,x.SpaceId,x.Status.ToString(),x.Attempts.Count,MaxAttempts,x.NextAvailableAt,includeGame?new(x.Game.Id,x.Game.Type.ToString(),content!.Value):null,x.InactivityDeadlineAt);
     }
 }
+
+public sealed class SessionExpirationWorker(
+    IServiceScopeFactory scopeFactory,
+    IOptions<GameSessionOptions> sessionOptions,
+    ILogger<SessionExpirationWorker> logger) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        var seconds = sessionOptions.Value.ExpirationPollingIntervalSeconds > 0 ? sessionOptions.Value.ExpirationPollingIntervalSeconds : 15;
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(seconds));
+        while (await timer.WaitForNextTickAsync(stoppingToken))
+        {
+            try
+            {
+                await using var scope = scopeFactory.CreateAsyncScope();
+                var service = scope.ServiceProvider.GetRequiredService<GameService>();
+                await service.ExpireDueSessions(stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
+            catch (Exception ex) { logger.LogError(ex, "Failed to process inactive game sessions."); }
+        }
+    }
+}
+
 public sealed record MatchingPlayablePublic(PairView[] Left,PairView[] Right);
 public sealed record SentencePlayablePublic(Guid[] Tokens,Dictionary<Guid,string> Words);
 
