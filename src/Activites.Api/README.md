@@ -106,6 +106,17 @@ La génération de jeu est retournée dans la réponse de démarrage. Réponses 
 
 Les règles de session sont configurées par `GameSessions` dans `appsettings.json`: trois tentatives, cinq minutes d'inactivité à partir de la première réponse incorrecte, vingt-quatre heures de cooldown après `FAILED` ou `UNFINISHED`, et un balayage périodique toutes les quinze secondes. Chaque réponse incorrecte avant la dernière redémarre le délai. Les sessions ouvertes sans réponse n'ont pas de deadline. Les routes de reprise et de soumission vérifient elles aussi la deadline et effectuent la transition immédiatement si nécessaire.
 
+### Exemple Postman : expiration MATH
+
+Crée un environnement Postman avec `baseUrl=http://localhost:5156`, `spaceId=11111111-1111-1111-1111-111111111111` et `testCredential` égal au credential configuré dans le terminal Development. Pour chaque requête, ajoute `X-EduKids-Test-Credential: {{testCredential}}`; ajoute aussi `Content-Type: application/json` aux requêtes avec un corps.
+
+1. Créer un jeu : `POST {{baseUrl}}/api/spaces/{{spaceId}}/games`, avec `{ "type": "MATH", "title": "Calcul mental 1", "content": { "expression": "2 + 2" } }`. Stocke `id` de la réponse en variable `gameId`.
+2. Démarrer : `POST {{baseUrl}}/api/spaces/{{spaceId}}/games/{{gameId}}/sessions`, sans corps. Stocke `id` de la réponse en variable `sessionId`; elle a `status: "ACTIVE"` et `inactivityDeadlineAt: null`.
+3. Envoyer une réponse incorrecte : `POST {{baseUrl}}/api/spaces/{{spaceId}}/sessions/{{sessionId}}/attempts`, avec `{ "idempotencyKey": "postman-math-try-1", "answer": { "value": 3 } }`. La réponse indique `correct: false`, `status: "ACTIVE"` et un `inactivityDeadlineAt` cinq minutes après `submittedAt`.
+4. Après cette deadline, lire la session : `GET {{baseUrl}}/api/spaces/{{spaceId}}/sessions/{{sessionId}}`. Elle est `UNFINISHED` et sa `nextAvailableAt` est 24 heures après `completedAt`. Une nouvelle requête d'essai pour cette session répond `409 Conflict`.
+
+Pour raccourcir le délai lors d'une démonstration locale, définis `GameSessions__InactivityTimeoutMinutes=1` avant `dotnet run`; cette option reste une configuration locale, et ne change pas la règle par défaut de cinq minutes. Les tests automatisés utilisent une horloge injectée et n'attendent pas réellement.
+
 `SUCCESS` permet une nouvelle session immédiatement. `FAILED` et `UNFINISHED` bloquent seulement le même jeu dans le même espace jusqu'à `NextAvailableAt`; la disponibilité revient à l'instant exact de cette date UTC.
 
 Chaque nouvelle session fige le titre, le type et le JSON de contenu au démarrage. Chaque tentative garde son identifiant, le JSON exact de la réponse, l'évaluation, le score et l'heure. Les exercices historiques des sessions créées avant l'ajout des instantanés ne peuvent pas être reconstruits rétroactivement ; l'évolution de schéma enregistre le contenu actuellement disponible lors de la mise à niveau.
