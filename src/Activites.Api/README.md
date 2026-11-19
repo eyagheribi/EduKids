@@ -31,7 +31,25 @@ En Production, le schéma de test n'est pas enregistré. L'implémentation `Deny
 
 `GameSessionCompleted` est le contrat de sortie vers Suivi.Api, versionné avec `SchemaVersion: 1`. Il contient un EventId stable (l'identifiant de session), les métadonnées et l'instantané immuable `GameContentSnapshot`, le statut final, les scores du dernier essai et chaque tentative avec sa réponse JSON exacte. Chaque transition terminale écrit cet événement dans la table SQLite `Outbox` dans la même transaction que la sauvegarde de la session. Le worker réessaie les événements non acquittés; la publication est au moins une fois, donc le futur consommateur Suivi doit dédupliquer par `EventId`.
 
-L'adaptateur `IProgressPublisher` reste volontairement no-op tant qu'aucun broker/transport n'est configuré. Il retourne « non publié » : les événements restent visibles comme en attente dans `Outbox` et ne sont pas présentés comme livrés à Suivi.Api. Le service ne contacte pas Suivi.Api directement. Une livraison après accusé de réception peut être rejouée en cas de panne entre réception et marquage local; l'idempotence côté consommateur est donc nécessaire.
+`IProgressPublisher` est no-op par défaut. Lorsque `RabbitMq:Enabled=true`, Activites.Api publie `GameSessionCompleted` via RabbitMQ.Client sur l'échange topic durable `edukids.game-events`, avec routing key `game.session.completed.v1` et la queue durable `edukids.suivi.game-session-completed.v1`. Le corps est le JSON UTF-8 du payload d'outbox existant; le message est persistant, en mode publisher-confirm, et porte aussi `MessageId`, `Type`, `eventId` et `schemaVersion` dans ses propriétés/en-têtes AMQP.
+
+L'outbox ne marque un événement livré qu'après confirmation du broker. Une panne, un nack, un retour unroutable ou un timeout laisse la ligne en attente; le worker la réessaie au prochain balayage. Un échec ambigu après confirmation peut produire une rediffusion; les consommateurs doivent dédupliquer avec l'EventId stable. Un seul canal est utilisé à la fois par instance du publisher, et les connexions/topologies récupérées automatiquement sont recréées après erreur de canal/connexion. Activites.Api n'appelle pas Suivi.Api et n'en dépend pas.
+
+### Activer RabbitMQ localement
+
+La configuration de base garde `RabbitMq:Enabled=false` et ne contient aucun credential. `appsettings.Development.json` fournit les identifiants de développement `edukids` / `edukids_dev_2026`, mais le publisher reste désactivé jusqu'à son activation explicite. Depuis PowerShell :
+
+```powershell
+$env:ASPNETCORE_ENVIRONMENT = 'Development'
+$env:RabbitMq__Enabled = 'true'
+$env:RabbitMq__HostName = 'localhost'
+$env:RabbitMq__Port = '5672'
+$env:RabbitMq__UserName = 'edukids'
+$env:RabbitMq__Password = 'edukids_dev_2026'
+dotnet run --project src/Activites.Api --launch-profile http
+```
+
+Le broker doit accepter cet utilisateur et mot de passe (par exemple via `RABBITMQ_DEFAULT_USER` et `RABBITMQ_DEFAULT_PASS` pour le conteneur local). En Production, fournis les credentials par un secret manager ou des variables d'environnement, et n'active RabbitMQ qu'après configuration explicite. Aucun credential de développement n'est présent dans `appsettings.json`.
 
 ### Contrat d'historique parent (à intégrer dans Suivi.Api)
 

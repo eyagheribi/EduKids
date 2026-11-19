@@ -12,15 +12,26 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.Configure<GameSessionOptions>(builder.Configuration.GetSection("GameSessions"));
+builder.Services.Configure<RabbitMqProgressPublisherOptions>(builder.Configuration.GetSection("RabbitMq"));
 builder.Services.AddSingleton<IGameEngine, MathEngine>();
 builder.Services.AddSingleton<IGameEngine, MatchingEngine>();
 builder.Services.AddSingleton<IGameEngine, SentenceOrderingEngine>();
 builder.Services.AddDbContext<ActivitiesDbContext>(options => options.UseSqlite(builder.Configuration.GetConnectionString("Activities") ?? "Data Source=activites.db"));
 builder.Services.AddScoped<IGameCatalog, EfGameCatalog>();
-builder.Services.AddSingleton<IProgressPublisher, NoopProgressPublisher>();
+var rabbitMqEnabled = builder.Configuration.GetValue<bool>("RabbitMq:Enabled");
+if (rabbitMqEnabled)
+{
+    builder.Services.AddSingleton<RabbitMqProgressPublisher>();
+    builder.Services.AddSingleton<IProgressPublisher>(services => services.GetRequiredService<RabbitMqProgressPublisher>());
+}
+else
+{
+    builder.Services.AddSingleton<IProgressPublisher, NoopProgressPublisher>();
+}
 builder.Services.AddSingleton<IParentNotificationPublisher, NoopParentNotificationPublisher>();
 builder.Services.AddScoped<GameService>();
 builder.Services.AddHostedService<SessionExpirationWorker>();
+builder.Services.AddScoped<OutboxDispatchService>();
 builder.Services.AddHostedService<OutboxDispatchWorker>();
 
 if (builder.Environment.IsDevelopment())
@@ -584,6 +595,61 @@ public sealed class GameService(IGameCatalog catalog, IEnumerable<IGameEngine> e
     }
 }
 
+public sealed class OutboxDispatchService(
+    ActivitiesDbContext db,
+    IProgressPublisher progressPublisher,
+    IParentNotificationPublisher notificationPublisher,
+    ILogger<OutboxDispatchService> logger)
+{
+    public async Task<int> DispatchPendingOnce(CancellationToken cancellationToken)
+    {
+        // SQLite cannot translate DateTimeOffset ordering. Sort the pending batch in memory.
+        var rows = (await db.Outbox.AsNoTracking().Where(x=>x.SentAt==null).ToListAsync(cancellationToken))
+            .OrderBy(x=>x.CreatedAt)
+            .Take(50)
+            .ToList();
+        var delivered = 0;
+        foreach (var row in rows)
+        {
+            var sent = false;
+            string? error = null;
+            try
+            {
+                switch (row.EventType)
+                {
+                    case "GameSessionCompleted":
+                    {
+                        var message = await CompletionOutboxPayloadUpgrader.ReadForDispatch(db, row, cancellationToken);
+                        sent = await progressPublisher.Publish(message, cancellationToken);
+                        break;
+                    }
+                    case "UnfinishedSessionNotification":
+                    {
+                        var message = JsonSerializer.Deserialize<UnfinishedSessionNotificationEvent>(row.PayloadJson) ?? throw new InvalidOperationException("Outbox payload is empty.");
+                        sent = await notificationPublisher.Publish(message, cancellationToken);
+                        break;
+                    }
+                    default: throw new InvalidOperationException($"Unknown outbox event type '{row.EventType}'.");
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                logger.LogError("Failed to publish outbox event {EventId} ({FailureType}).", row.EventId, ex.GetType().Name);
+            }
+
+            DateTimeOffset? sentAt = sent ? DateTimeOffset.UtcNow : null;
+            await db.Outbox.Where(x=>x.EventId==row.EventId&&x.SentAt==null).ExecuteUpdateAsync(setters=>setters
+                .SetProperty(x=>x.Attempts,x=>x.Attempts+1)
+                .SetProperty(x=>x.SentAt,sentAt)
+                .SetProperty(x=>x.LastError,error),cancellationToken);
+            if (sent) delivered++;
+        }
+        return delivered;
+    }
+}
+
 public sealed class OutboxDispatchWorker(IServiceScopeFactory scopeFactory, IOptions<GameSessionOptions> options, ILogger<OutboxDispatchWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -595,36 +661,10 @@ public sealed class OutboxDispatchWorker(IServiceScopeFactory scopeFactory, IOpt
             try
             {
                 await using var scope = scopeFactory.CreateAsyncScope();
-                var db = scope.ServiceProvider.GetRequiredService<ActivitiesDbContext>();
-                foreach (var row in await db.Outbox.AsNoTracking().Where(x=>x.SentAt==null).OrderBy(x=>x.CreatedAt).Take(50).ToListAsync(stoppingToken))
-                {
-                    var sent = false; string? error = null;
-                    try
-                    {
-                        switch (row.EventType)
-                        {
-                            case "GameSessionCompleted":
-                            {
-                                var message = await CompletionOutboxPayloadUpgrader.ReadForDispatch(db, row, stoppingToken);
-                                sent = await scope.ServiceProvider.GetRequiredService<IProgressPublisher>().Publish(message, stoppingToken);
-                                break;
-                            }
-                            case "UnfinishedSessionNotification":
-                            {
-                                var message = JsonSerializer.Deserialize<UnfinishedSessionNotificationEvent>(row.PayloadJson) ?? throw new InvalidOperationException("Outbox payload is empty.");
-                                sent = await scope.ServiceProvider.GetRequiredService<IParentNotificationPublisher>().Publish(message, stoppingToken);
-                                break;
-                            }
-                            default: throw new InvalidOperationException($"Unknown outbox event type '{row.EventType}'.");
-                        }
-                    }
-                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { throw; }
-                    catch (Exception ex) { error = ex.Message; logger.LogError(ex, "Failed to publish outbox event {EventId}.", row.EventId); }
-                    await db.Outbox.Where(x=>x.EventId==row.EventId&&x.SentAt==null).ExecuteUpdateAsync(setters=>setters.SetProperty(x=>x.Attempts,x=>x.Attempts+1).SetProperty(x=>x.SentAt,sent?DateTimeOffset.UtcNow:(DateTimeOffset?)null).SetProperty(x=>x.LastError,error),stoppingToken);
-                }
+                await scope.ServiceProvider.GetRequiredService<OutboxDispatchService>().DispatchPendingOnce(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
-            catch (Exception ex) { logger.LogError(ex, "Failed to dispatch completion outbox events."); }
+            catch (Exception ex) { logger.LogError(ex, "Failed to dispatch outbox events."); }
             try { await timer.WaitForNextTickAsync(stoppingToken); }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
         }
