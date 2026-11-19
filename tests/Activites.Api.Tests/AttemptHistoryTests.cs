@@ -101,7 +101,6 @@ public class AttemptHistoryTests
         [new MathEngine(), new MatchingEngine(), new SentenceOrderingEngine()],
         new TestSpaceAccess(),
         clock,
-        new NoopProgressPublisher(),
         Options.Create(new GameSessionOptions()));
 
     private static async Task<GameRecord> CreateGame(IGameCatalog catalog, DateTimeOffset now, string title, GameType type, string content)

@@ -29,7 +29,9 @@ Les requêtes sans credential ou avec un credential incorrect reçoivent `401 Un
 
 En Production, le schéma de test n'est pas enregistré. L'implémentation `DenyAllSpaceAccess` refuse l'accès jusqu'à son remplacement par l'adaptateur d'authentification et d'autorisation connecté à `Espaces.Api`.
 
-`IProgressPublisher` est le point d'intégration pour Suivi.Api. L'implémentation actuelle est un no-op car aucun contrat ni broker n'existe. Pour une livraison fiable, implémenter un outbox transactionnel en base et un consommateur idempotent dans Suivi.Api avant d'activer la publication.
+`GameSessionCompleted` est le contrat de sortie vers Suivi.Api. Il contient un EventId stable (l'identifiant de session), les métadonnées et instantané du jeu, le statut final, le score et chaque tentative avec sa réponse JSON exacte. Chaque transition terminale écrit cet événement dans la table SQLite `Outbox` dans la même transaction que la sauvegarde de la session. Le worker réessaie les événements non acquittés; la publication est au moins une fois, donc le futur consommateur Suivi doit dédupliquer par `EventId`.
+
+L'adaptateur `IProgressPublisher` reste volontairement no-op tant qu'aucun broker/transport n'est configuré. Il retourne « non publié » : les événements restent visibles comme en attente dans `Outbox` et ne sont pas présentés comme livrés à Suivi.Api. Le service ne contacte pas Suivi.Api directement. Une livraison après accusé de réception peut être rejouée en cas de panne entre réception et marquage local; l'idempotence côté consommateur est donc nécessaire.
 
 ## Routes
 

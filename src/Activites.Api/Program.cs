@@ -20,6 +20,7 @@ builder.Services.AddScoped<IGameCatalog, EfGameCatalog>();
 builder.Services.AddSingleton<IProgressPublisher, NoopProgressPublisher>();
 builder.Services.AddScoped<GameService>();
 builder.Services.AddHostedService<SessionExpirationWorker>();
+builder.Services.AddHostedService<OutboxDispatchWorker>();
 
 if (builder.Environment.IsDevelopment())
 {
@@ -79,7 +80,9 @@ public sealed record PlayableGame(Guid GameId, string Type, JsonElement Content)
 public sealed record SessionDto(Guid Id, Guid GameId, Guid SpaceId, string Status, int AttemptsUsed, int MaxAttempts, DateTimeOffset? NextAvailableAt, PlayableGame? Game, DateTimeOffset? InactivityDeadlineAt);
 public sealed record AttemptDto(Guid Id, int Number, bool Correct, int Score, int MaxScore, DateTimeOffset SubmittedAt, int AttemptsRemaining, string Status, JsonElement? Correction, DateTimeOffset? NextAvailableAt);
 public sealed record AvailabilityDto(bool Available, DateTimeOffset? NextAvailableAt);
-public sealed record GameSessionCompletedEvent(Guid EventId, Guid SessionId, Guid GameId, Guid SpaceId, string GameType, string FinalStatus, DateTimeOffset CompletedAt, DateTimeOffset? NextAvailableAt);
+public sealed record AttemptCompletedEvent(Guid AttemptId, int AttemptNumber, JsonElement SubmittedAnswer, bool Correct, int Score, int MaxScore, DateTimeOffset SubmittedAt);
+public sealed record GameSessionCompletedEvent(Guid EventId, Guid SessionId, Guid GameId, Guid SpaceId, string GameType, string? GameTitle, string FinalStatus, int AttemptsUsed, int MaxAttempts, int FinalScore, DateTimeOffset StartedAt, DateTimeOffset CompletedAt, DateTimeOffset? NextAvailableAt, JsonElement ExerciseContentSnapshot, IReadOnlyList<AttemptCompletedEvent> Attempts);
+public sealed record OutboxMessage(Guid EventId, string EventType, string PayloadJson, DateTimeOffset CreatedAt, int Attempts, string? LastError);
 public sealed class GameSessionOptions { public int MaxAttempts { get; set; } = 3; public int InactivityTimeoutMinutes { get; set; } = 5; public int FailureCooldownHours { get; set; } = 24; public int ExpirationPollingIntervalSeconds { get; set; } = 15; }
 public sealed record Evaluation(bool Correct, int Score, int MaxScore, object? Correction);
 public sealed record PairInput(string Left, string Right);
@@ -194,7 +197,7 @@ public sealed record AttemptRecord(int Number, string Answer, Evaluation Evaluat
 public interface IGameCatalog
 {
     Task<GameRecord?> Find(Guid space, Guid game, CancellationToken ct); Task<List<GameRecord>> List(Guid space, CancellationToken ct); Task Save(GameRecord game, CancellationToken ct); Task Remove(GameRecord game, CancellationToken ct);
-    Task<SessionRecord?> GetSession(Guid id, CancellationToken ct); Task<List<SessionRecord>> Sessions(Guid space, Guid game, CancellationToken ct); Task<List<SessionRecord>> ActiveSessionsWithDeadline(CancellationToken ct); Task<bool> SaveSession(SessionRecord session, CancellationToken ct); Task<bool> TryExpireSession(Guid id, DateTimeOffset expectedDeadline, DateTimeOffset completedAt, DateTimeOffset nextAvailableAt, CancellationToken ct);
+    Task<SessionRecord?> GetSession(Guid id, CancellationToken ct); Task<List<SessionRecord>> Sessions(Guid space, Guid game, CancellationToken ct); Task<List<SessionRecord>> ActiveSessionsWithDeadline(CancellationToken ct); Task<bool> SaveSession(SessionRecord session, CancellationToken ct, GameSessionCompletedEvent? completion = null); Task<bool> TryExpireSession(Guid id, DateTimeOffset expectedDeadline, DateTimeOffset completedAt, DateTimeOffset nextAvailableAt, CancellationToken ct, GameSessionCompletedEvent? completion = null);
 }
 public sealed class InMemoryGameCatalog : IGameCatalog
 {
@@ -206,8 +209,8 @@ public sealed class InMemoryGameCatalog : IGameCatalog
     public Task<SessionRecord?> GetSession(Guid id, CancellationToken ct) => Task.FromResult(sessions.GetValueOrDefault(id));
     public Task<List<SessionRecord>> Sessions(Guid s, Guid g, CancellationToken ct) => Task.FromResult(sessions.Values.Where(x => x.SpaceId == s && x.Game.Id == g).ToList());
     public Task<List<SessionRecord>> ActiveSessionsWithDeadline(CancellationToken ct) => Task.FromResult(sessions.Values.Where(x => x.Status == SessionStatus.ACTIVE && x.InactivityDeadlineAt != null).ToList());
-    public Task<bool> SaveSession(SessionRecord s, CancellationToken ct) { lock(s) { if(s.Version < 0) s.Version=0; else s.Version++; sessions[s.Id] = s; return Task.FromResult(true); } }
-    public Task<bool> TryExpireSession(Guid id, DateTimeOffset deadline, DateTimeOffset completedAt, DateTimeOffset nextAvailableAt, CancellationToken ct)
+    public Task<bool> SaveSession(SessionRecord s, CancellationToken ct, GameSessionCompletedEvent? completion = null) { lock(s) { if(s.Version < 0) s.Version=0; else s.Version++; sessions[s.Id] = s; return Task.FromResult(true); } }
+    public Task<bool> TryExpireSession(Guid id, DateTimeOffset deadline, DateTimeOffset completedAt, DateTimeOffset nextAvailableAt, CancellationToken ct, GameSessionCompletedEvent? completion = null)
     {
         if(!sessions.TryGetValue(id,out var s)) return Task.FromResult(false);
         lock(s) { if(s.Status!=SessionStatus.ACTIVE||s.InactivityDeadlineAt!=deadline)return Task.FromResult(false);s.Status=SessionStatus.UNFINISHED;s.CompletedAt=completedAt;s.NextAvailableAt=nextAvailableAt;s.InactivityDeadlineAt=null;s.Version++;return Task.FromResult(true); }
@@ -218,6 +221,7 @@ public sealed class ActivitiesDbContext(DbContextOptions<ActivitiesDbContext> op
 {
     public DbSet<GameRow> Games => Set<GameRow>();
     public DbSet<SessionRow> Sessions => Set<SessionRow>();
+    public DbSet<OutboxRow> Outbox => Set<OutboxRow>();
     protected override void OnModelCreating(ModelBuilder model)
     {
         model.Entity<GameRow>().HasKey(x => x.Id);
@@ -228,6 +232,8 @@ public sealed class ActivitiesDbContext(DbContextOptions<ActivitiesDbContext> op
         model.Entity<SessionRow>().HasIndex(x => new { x.SpaceId, x.GameId }).IsUnique().HasFilter("\"Status\" = 'ACTIVE'").HasDatabaseName("IX_Sessions_OneActivePerSpaceGame");
         model.Entity<SessionRow>().Property(x => x.Version).IsConcurrencyToken();
         model.Entity<SessionRow>().HasOne<GameRow>().WithMany().HasForeignKey(x => x.GameId).OnDelete(DeleteBehavior.Restrict);
+        model.Entity<OutboxRow>().HasKey(x => x.EventId);
+        model.Entity<OutboxRow>().HasIndex(x => new { x.SentAt, x.CreatedAt });
     }
 }
 public static class ActivitiesSchemaUpgrade
@@ -276,6 +282,12 @@ public static class ActivitiesSchemaUpgrade
             await using var index = db.Database.GetDbConnection().CreateCommand();
             index.CommandText = "CREATE INDEX IF NOT EXISTS IX_Sessions_Status_InactivityDeadlineAt ON Sessions (Status, InactivityDeadlineAt)";
             await index.ExecuteNonQueryAsync(cancellationToken);
+            await using var outbox = db.Database.GetDbConnection().CreateCommand();
+            outbox.CommandText = "CREATE TABLE IF NOT EXISTS Outbox (EventId TEXT NOT NULL PRIMARY KEY, EventType TEXT NOT NULL, PayloadJson TEXT NOT NULL, CreatedAt TEXT NOT NULL, SentAt TEXT NULL, Attempts INTEGER NOT NULL DEFAULT 0, LastError TEXT NULL)";
+            await outbox.ExecuteNonQueryAsync(cancellationToken);
+            await using var outboxIndex = db.Database.GetDbConnection().CreateCommand();
+            outboxIndex.CommandText = "CREATE INDEX IF NOT EXISTS IX_Outbox_SentAt_CreatedAt ON Outbox (SentAt, CreatedAt)";
+            await outboxIndex.ExecuteNonQueryAsync(cancellationToken);
             await using var activeIndex = db.Database.GetDbConnection().CreateCommand();
             activeIndex.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS IX_Sessions_OneActivePerSpaceGame ON Sessions (SpaceId, GameId) WHERE Status = 'ACTIVE'";
             await activeIndex.ExecuteNonQueryAsync(cancellationToken);
@@ -285,6 +297,7 @@ public static class ActivitiesSchemaUpgrade
 }
 public sealed class GameRow { public Guid Id { get; set; } public Guid SpaceId { get; set; } public string Type { get; set; } = ""; public string? Title { get; set; } public string Content { get; set; } = ""; public DateTimeOffset CreatedAt { get; set; } public DateTimeOffset UpdatedAt { get; set; } }
 public sealed class SessionRow { public Guid Id { get; set; } public Guid SpaceId { get; set; } public Guid GameId { get; set; } public string Status { get; set; } = "ACTIVE"; public DateTimeOffset CreatedAt { get; set; } public DateTimeOffset? CompletedAt { get; set; } public DateTimeOffset? NextAvailableAt { get; set; } public DateTimeOffset? InactivityDeadlineAt { get; set; } public int Version { get; set; } public string? GameTitleSnapshot { get; set; } public string? GameTypeSnapshot { get; set; } public string? ExerciseContentSnapshot { get; set; } public string PlayJson { get; set; } = "{}"; public string AttemptsJson { get; set; } = "[]"; public string IdempotencyJson { get; set; } = "{}"; }
+public sealed class OutboxRow { public Guid EventId { get; set; } public string EventType { get; set; } = ""; public string PayloadJson { get; set; } = ""; public DateTimeOffset CreatedAt { get; set; } public DateTimeOffset? SentAt { get; set; } public int Attempts { get; set; } public string? LastError { get; set; } }
 public sealed class EfGameCatalog(ActivitiesDbContext db) : IGameCatalog
 {
     public async Task<GameRecord?> Find(Guid space, Guid game, CancellationToken ct) { var x=await db.Games.AsNoTracking().SingleOrDefaultAsync(x=>x.Id==game&&x.SpaceId==space,ct); return x==null?null:ToRecord(x); }
@@ -294,7 +307,7 @@ public sealed class EfGameCatalog(ActivitiesDbContext db) : IGameCatalog
     public async Task<SessionRecord?> GetSession(Guid id,CancellationToken ct) { var x=await db.Sessions.AsNoTracking().SingleOrDefaultAsync(x=>x.Id==id,ct);return x==null?null:await ToSession(x,ct); }
     public async Task<List<SessionRecord>> Sessions(Guid space,Guid game,CancellationToken ct) { var rows=await db.Sessions.AsNoTracking().Where(x=>x.SpaceId==space&&x.GameId==game).ToListAsync(ct);var result=new List<SessionRecord>();foreach(var row in rows)result.Add((await ToSession(row,ct))!);return result; }
     public async Task<List<SessionRecord>> ActiveSessionsWithDeadline(CancellationToken ct) { var rows=await db.Sessions.AsNoTracking().Where(x=>x.Status=="ACTIVE"&&x.InactivityDeadlineAt!=null).ToListAsync(ct);var result=new List<SessionRecord>();foreach(var row in rows)if((await ToSession(row,ct)) is { } session)result.Add(session);return result; }
-    public async Task<bool> SaveSession(SessionRecord s,CancellationToken ct)
+    public async Task<bool> SaveSession(SessionRecord s,CancellationToken ct,GameSessionCompletedEvent? completion = null)
     {
         if(s.Version<0)
         {
@@ -303,30 +316,47 @@ public sealed class EfGameCatalog(ActivitiesDbContext db) : IGameCatalog
             try { await db.SaveChangesAsync(ct); s.Version=0; return true; }
             catch(DbUpdateException) { db.Entry(inserted).State=EntityState.Detached; return false; }
         }
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var expected=s.Version; var next=expected+1; var attemptsJson=JsonSerializer.Serialize(s.Attempts); var idempotencyJson=JsonSerializer.Serialize(s.Idempotency);
         var changed=await db.Sessions.Where(x=>x.Id==s.Id&&x.Version==expected&&x.Status=="ACTIVE").ExecuteUpdateAsync(setters=>setters
             .SetProperty(x=>x.Status,s.Status.ToString()).SetProperty(x=>x.CompletedAt,s.CompletedAt).SetProperty(x=>x.NextAvailableAt,s.NextAvailableAt)
             .SetProperty(x=>x.InactivityDeadlineAt,s.InactivityDeadlineAt).SetProperty(x=>x.PlayJson,s.PlayJson)
             .SetProperty(x=>x.AttemptsJson,attemptsJson).SetProperty(x=>x.IdempotencyJson,idempotencyJson)
             .SetProperty(x=>x.Version,next),ct);
-        if(changed==1)s.Version=next;
+        if(changed==1 && completion is not null)
+        {
+            db.Outbox.Add(ToOutbox(completion, s.CompletedAt ?? completion.CompletedAt));
+            await db.SaveChangesAsync(ct);
+        }
+        if(changed==1) { await transaction.CommitAsync(ct); s.Version=next; }
+        else await transaction.RollbackAsync(ct);
         return changed==1;
     }
-    public async Task<bool> TryExpireSession(Guid id,DateTimeOffset expectedDeadline,DateTimeOffset completedAt,DateTimeOffset nextAvailableAt,CancellationToken ct)
+    public async Task<bool> TryExpireSession(Guid id,DateTimeOffset expectedDeadline,DateTimeOffset completedAt,DateTimeOffset nextAvailableAt,CancellationToken ct,GameSessionCompletedEvent? completion = null)
     {
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var changed=await db.Sessions.Where(x=>x.Id==id&&x.Status=="ACTIVE"&&x.InactivityDeadlineAt==expectedDeadline).ExecuteUpdateAsync(setters=>setters
             .SetProperty(x=>x.Status,SessionStatus.UNFINISHED.ToString()).SetProperty(x=>x.CompletedAt,completedAt).SetProperty(x=>x.NextAvailableAt,nextAvailableAt)
             .SetProperty(x=>x.InactivityDeadlineAt,(DateTimeOffset?)null).SetProperty(x=>x.Version,x=>x.Version+1),ct);
+        if(changed==1 && completion is not null) { db.Outbox.Add(ToOutbox(completion, completedAt)); await db.SaveChangesAsync(ct); }
+        if(changed==1) await transaction.CommitAsync(ct); else await transaction.RollbackAsync(ct);
         return changed==1;
     }
+    public async Task<List<OutboxRow>> PendingOutbox(CancellationToken ct) => await db.Outbox.AsNoTracking().Where(x=>x.SentAt==null).OrderBy(x=>x.CreatedAt).Take(50).ToListAsync(ct);
+    public async Task MarkOutbox(Guid eventId, bool sent, string? error, CancellationToken ct)
+    {
+        await db.Outbox.Where(x=>x.EventId==eventId&&x.SentAt==null).ExecuteUpdateAsync(setters=>setters.SetProperty(x=>x.Attempts,x=>x.Attempts+1).SetProperty(x=>x.SentAt,sent?DateTimeOffset.UtcNow:(DateTimeOffset?)null).SetProperty(x=>x.LastError,error),ct);
+    }
+    private static OutboxRow ToOutbox(GameSessionCompletedEvent e, DateTimeOffset createdAt) => new() { EventId=e.EventId, EventType="GameSessionCompleted", PayloadJson=JsonSerializer.Serialize(e), CreatedAt=createdAt };
     private async Task<SessionRecord?> ToSession(SessionRow r,CancellationToken ct) { var g=await db.Games.AsNoTracking().SingleOrDefaultAsync(g=>g.Id==r.GameId,ct);if(g==null)return null;var game=ToRecord(g);var s=new SessionRecord{Id=r.Id,SpaceId=r.SpaceId,Game=game,CreatedAt=r.CreatedAt,Status=Enum.Parse<SessionStatus>(r.Status),CompletedAt=r.CompletedAt,NextAvailableAt=r.NextAvailableAt,InactivityDeadlineAt=r.InactivityDeadlineAt,GameTitleSnapshot=r.GameTitleSnapshot??game.Title,GameTypeSnapshot=r.GameTypeSnapshot??game.Type.ToString(),ExerciseContentSnapshot=r.ExerciseContentSnapshot??game.Content,PlayJson=r.PlayJson,Version=r.Version};s.Attempts.AddRange(JsonSerializer.Deserialize<List<AttemptRecord>>(r.AttemptsJson)??[]);foreach(var kv in JsonSerializer.Deserialize<Dictionary<string,AttemptDto>>(r.IdempotencyJson)??[])s.Idempotency[kv.Key]=kv.Value;return s; }
     private static GameRecord ToRecord(GameRow x)=>new(x.Id,x.SpaceId,Enum.Parse<GameType>(x.Type),x.Title,x.Content,x.CreatedAt,x.UpdatedAt);
 }
 public interface ISpaceAccess { Task<bool> CanAccess(Guid spaceId, ClaimsPrincipal user, string activityType, CancellationToken ct); }
-public interface IProgressPublisher { Task Publish(object message, CancellationToken ct); }
-public sealed class NoopProgressPublisher : IProgressPublisher { public Task Publish(object message, CancellationToken ct) => Task.CompletedTask; }
+public interface IProgressPublisher { Task<bool> Publish(GameSessionCompletedEvent message, CancellationToken ct); }
+// Intentionally reports failure until a real transport is configured, leaving the event pending in the outbox.
+public sealed class NoopProgressPublisher : IProgressPublisher { public Task<bool> Publish(GameSessionCompletedEvent message, CancellationToken ct) => Task.FromResult(false); }
 
-public sealed class GameService(IGameCatalog catalog, IEnumerable<IGameEngine> engines, ISpaceAccess access, IClock clock, IProgressPublisher publisher, IOptions<GameSessionOptions> sessionOptions)
+public sealed class GameService(IGameCatalog catalog, IEnumerable<IGameEngine> engines, ISpaceAccess access, IClock clock, IOptions<GameSessionOptions> sessionOptions)
 {
     private int MaxAttempts => sessionOptions.Value.MaxAttempts;
     private TimeSpan InactivityTimeout => TimeSpan.FromMinutes(sessionOptions.Value.InactivityTimeoutMinutes);
@@ -367,13 +397,13 @@ public sealed class GameService(IGameCatalog catalog, IEnumerable<IGameEngine> e
             else { x.InactivityDeadlineAt=now+InactivityTimeout; }
             dto=new AttemptDto(attemptId,number,result.Correct,result.Score,result.MaxScore,now,MaxAttempts-number,x.Status.ToString(),x.Status==SessionStatus.FAILED?JsonSerializer.SerializeToElement(result.Correction):null,x.NextAvailableAt); x.Idempotency[r.IdempotencyKey]=dto;
         }
-        if(!await catalog.SaveSession(x,ct))
+        var completion = x.Status == SessionStatus.ACTIVE ? null : BuildCompletion(x);
+        if(!await catalog.SaveSession(x,ct,completion))
         {
             var current=await catalog.GetSession(x.Id,ct);
             if(current?.Idempotency.TryGetValue(r.IdempotencyKey,out var duplicate)==true) return duplicate;
             throw new DomainException("La session a été modifiée par une autre requête. Réessayez.",409);
         }
-        if(x.Status!=SessionStatus.ACTIVE) await PublishCompletion(x,ct);
         return dto;
     }
     public async Task<int> ExpireDueSessions(CancellationToken ct)
@@ -385,14 +415,36 @@ public sealed class GameService(IGameCatalog catalog, IEnumerable<IGameEngine> e
     private async Task<SessionRecord> ExpireIfDue(SessionRecord session,CancellationToken ct)
     {
         if(session.Status!=SessionStatus.ACTIVE||session.InactivityDeadlineAt is not { } deadline||deadline>clock.UtcNow) return session;
-        var transitioned=await catalog.TryExpireSession(session.Id,deadline,deadline,deadline+Cooldown,ct);
+        var expired = CopyAsUnfinished(session, deadline, deadline+Cooldown);
+        var transitioned=await catalog.TryExpireSession(session.Id,deadline,deadline,deadline+Cooldown,ct,BuildCompletion(expired));
         var updated=await catalog.GetSession(session.Id,ct) ?? session;
-        if(transitioned) await PublishCompletion(updated,ct);
         return updated;
     }
-    private Task PublishCompletion(SessionRecord session,CancellationToken ct) => session.CompletedAt is { } completedAt
-        ? publisher.Publish(new GameSessionCompletedEvent(session.Id,session.Id,session.Game.Id,session.SpaceId,session.EffectiveGameType.ToString(),session.Status.ToString(),completedAt,session.NextAvailableAt),ct)
-        : Task.CompletedTask;
+    private static SessionRecord CopyAsUnfinished(SessionRecord source, DateTimeOffset completedAt, DateTimeOffset nextAvailableAt)
+    {
+        var copy = new SessionRecord { Id=source.Id, SpaceId=source.SpaceId, Game=source.Game, CreatedAt=source.CreatedAt, Status=SessionStatus.UNFINISHED, CompletedAt=completedAt, NextAvailableAt=nextAvailableAt, GameTitleSnapshot=source.GameTitleSnapshot, GameTypeSnapshot=source.GameTypeSnapshot, ExerciseContentSnapshot=source.ExerciseContentSnapshot, PlayJson=source.PlayJson, Version=source.Version };
+        copy.Attempts.AddRange(source.Attempts);
+        return copy;
+    }
+    private GameSessionCompletedEvent BuildCompletion(SessionRecord session)
+    {
+        var attempts = session.Attempts.Select(a => new AttemptCompletedEvent(
+            a.AttemptId == Guid.Empty ? DeterministicAttemptId(session.Id, a.Number) : a.AttemptId,
+            a.Number,
+            JsonDocument.Parse(a.Answer).RootElement.Clone(),
+            a.Evaluation.Correct,
+            a.Evaluation.Score,
+            a.Evaluation.MaxScore,
+            a.At)).ToArray();
+        var content = JsonDocument.Parse(session.EffectiveExerciseContent).RootElement.Clone();
+        var completedAt = session.CompletedAt ?? clock.UtcNow;
+        return new(session.Id, session.Id, session.Game.Id, session.SpaceId, session.EffectiveGameType.ToString(), session.GameTitleSnapshot, session.Status.ToString(), attempts.Length, MaxAttempts, attempts.LastOrDefault()?.Score ?? 0, session.CreatedAt, completedAt, session.NextAvailableAt, content, attempts);
+    }
+    private static Guid DeterministicAttemptId(Guid sessionId, int number)
+    {
+        var bytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{sessionId:N}:{number}"));
+        return new Guid(bytes.AsSpan(0,16));
+    }
     private bool IsReplayBlocked(SessionRecord session) =>
         (session.Status is SessionStatus.FAILED or SessionStatus.UNFINISHED)
         && session.NextAvailableAt is { } nextAvailableAt
@@ -415,6 +467,41 @@ public sealed class GameService(IGameCatalog catalog, IEnumerable<IGameEngine> e
             content=JsonSerializer.SerializeToElement(safe);
         }
         return new(x.Id,x.Game.Id,x.SpaceId,x.Status.ToString(),x.Attempts.Count,MaxAttempts,x.NextAvailableAt,includeGame?new(x.Game.Id,x.EffectiveGameType.ToString(),content!.Value):null,x.InactivityDeadlineAt);
+    }
+}
+
+public sealed class OutboxDispatchWorker(IServiceScopeFactory scopeFactory, IOptions<GameSessionOptions> options, ILogger<OutboxDispatchWorker> logger) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        var seconds = Math.Max(1, options.Value.ExpirationPollingIntervalSeconds);
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(seconds));
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                await using var scope = scopeFactory.CreateAsyncScope();
+                var db = scope.ServiceProvider.GetRequiredService<ActivitiesDbContext>();
+                var publisher = scope.ServiceProvider.GetRequiredService<IProgressPublisher>();
+                foreach (var row in await db.Outbox.AsNoTracking().Where(x=>x.SentAt==null).OrderBy(x=>x.CreatedAt).Take(50).ToListAsync(stoppingToken))
+                {
+                    var sent = false; string? error = null;
+                    try
+                    {
+                        if (row.EventType != "GameSessionCompleted") throw new InvalidOperationException($"Unknown outbox event type '{row.EventType}'.");
+                        var message = JsonSerializer.Deserialize<GameSessionCompletedEvent>(row.PayloadJson) ?? throw new InvalidOperationException("Outbox payload is empty.");
+                        sent = await publisher.Publish(message, stoppingToken);
+                    }
+                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { throw; }
+                    catch (Exception ex) { error = ex.Message; logger.LogError(ex, "Failed to publish outbox event {EventId}.", row.EventId); }
+                    await db.Outbox.Where(x=>x.EventId==row.EventId&&x.SentAt==null).ExecuteUpdateAsync(setters=>setters.SetProperty(x=>x.Attempts,x=>x.Attempts+1).SetProperty(x=>x.SentAt,sent?DateTimeOffset.UtcNow:(DateTimeOffset?)null).SetProperty(x=>x.LastError,error),stoppingToken);
+                }
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
+            catch (Exception ex) { logger.LogError(ex, "Failed to dispatch completion outbox events."); }
+            try { await timer.WaitForNextTickAsync(stoppingToken); }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
+        }
     }
 }
 

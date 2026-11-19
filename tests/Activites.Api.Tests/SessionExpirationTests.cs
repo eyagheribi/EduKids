@@ -14,7 +14,7 @@ public class SessionExpirationTests
         var clock = new FakeClock(new DateTimeOffset(2026, 11, 19, 14, 0, 0, TimeSpan.Zero));
         var gameId = Guid.NewGuid();
         await catalog.Save(new GameRecord(gameId, SpaceId, GameType.MATH, "Calcul", "{\"expression\":\"2+2\"}", clock.UtcNow, clock.UtcNow), default);
-        var service = new GameService(catalog, [new MathEngine(), new MatchingEngine(), new SentenceOrderingEngine()], new AllowSpaceAccess(), clock, new NoopProgressPublisher(), Options.Create(new GameSessionOptions()));
+        var service = new GameService(catalog, [new MathEngine(), new MatchingEngine(), new SentenceOrderingEngine()], new AllowSpaceAccess(), clock, Options.Create(new GameSessionOptions()));
         return (service, clock, catalog, gameId);
     }
 
