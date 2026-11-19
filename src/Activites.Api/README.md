@@ -82,6 +82,14 @@ Le message `GameSessionCompletedEvent` (champs sérialisés actuellement avec le
 
 Suivi pourra exposer, après mise en place de son stockage et de son autorisation, une liste paginée de sessions par espace/jeu et les détails d'une session : statut final, timestamps, disponibilité, snapshot du jeu et tentatives ordonnées avec identifiant, réponse, évaluation et score. Ces routes restent à concevoir et protéger dans Suivi.Api; l'événement autonome évite à Suivi d'interroger la base d'Activites.Api.
 
+### Contrat de notification de session inachevée (à intégrer dans Notifications.Api)
+
+Lors de la seule transition `ACTIVE → UNFINISHED`, la même transaction écrit aussi un message `UnfinishedSessionNotification` dans `Outbox`. Son `EventId` est stable et distinct de l'événement de progression. Le message contient `EventId`, `SpaceId`, `GameId`, `GameTitle`, `Status` (`UNFINISHED`), `AttemptsUsed`, `IncorrectAttempts`, `CompletedAt` et `NextAvailableAt`. Il ne contient ni nom d'enfant, ni coordonnées du parent, ni autre donnée personnelle; Notifications.Api devra utiliser son intégration autorisée pour résoudre le destinataire à partir de l'espace.
+
+Il n'y a aucun message pour chaque tentative incorrecte, ni pour une session `SUCCESS` ou `FAILED`. L'écriture conditionnelle de transition et la clé primaire unique `Outbox.EventId` empêchent de créer une nouvelle notification logique lors de balayages répétés. Le futur consommateur doit néanmoins dédupliquer par `EventId`, car un transport au moins une fois peut rejouer un message après réception.
+
+`IParentNotificationPublisher` est l'adaptateur du transport vers Notifications.Api. Son implémentation actuelle est no-op et indique que le message n'a pas été livré : le message reste en attente dans `Outbox`. Aucune notification n'est envoyée par ce dépôt et Notifications.Api reste inchangée.
+
 ## Routes
 
 - `POST /api/spaces/{spaceId}/games` — créer (`type`, `content`, `title`)

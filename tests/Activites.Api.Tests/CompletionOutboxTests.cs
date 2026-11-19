@@ -7,6 +7,31 @@ public class CompletionOutboxTests
 {
     private static readonly Guid SpaceId = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
+    [Fact]
+    public async Task ActiveSessionDoesNotCreateCompletionOrNotificationEvents()
+    {
+        var file = Path.Combine(Path.GetTempPath(), $"edukids-outbox-active-{Guid.NewGuid():N}.db");
+        var options = new DbContextOptionsBuilder<ActivitiesDbContext>().UseSqlite($"Data Source={file};Pooling=False").Options;
+        try
+        {
+            using var db = new ActivitiesDbContext(options);
+            await db.Database.EnsureCreatedAsync();
+            await ActivitiesSchemaUpgrade.ApplyAsync(db);
+            var clock = new MutableClock(new DateTimeOffset(2026, 11, 19, 14, 0, 0, TimeSpan.Zero));
+            var catalog = new EfGameCatalog(db);
+            var game = new GameRecord(Guid.NewGuid(), SpaceId, GameType.MATH, "Calcul mental 1", "{\"expression\":\"11 + 111\"}", clock.UtcNow, clock.UtcNow);
+            await catalog.Save(game, default);
+            var service = new GameService(catalog, [new MathEngine(), new MatchingEngine(), new SentenceOrderingEngine()], new TestAccess(), clock, Options.Create(new GameSessionOptions()));
+            var session = await service.Start(SpaceId, game.Id, Parent(), default);
+            Assert.Empty(await db.Outbox.AsNoTracking().ToListAsync());
+
+            await service.Submit(SpaceId, session.Id, new SubmitAttemptRequest("active-incorrect", Json("{\"value\":0}")), Parent(), default);
+
+            Assert.Empty(await db.Outbox.AsNoTracking().ToListAsync());
+        }
+        finally { if (File.Exists(file)) File.Delete(file); }
+    }
+
     [Theory]
     [InlineData("SUCCESS", 1)]
     [InlineData("FAILED", 3)]
@@ -44,7 +69,8 @@ public class CompletionOutboxTests
             }
 
             var rows = await setup.Outbox.AsNoTracking().ToListAsync();
-            var row = Assert.Single(rows);
+            Assert.Equal(expectedStatus == "UNFINISHED" ? 2 : 1, rows.Count);
+            var row = Assert.Single(rows.Where(x => x.EventType == "GameSessionCompleted"));
             Assert.Equal(session.Id, row.EventId);
             Assert.Equal("GameSessionCompleted", row.EventType);
             Assert.Null(row.SentAt); // The no-op publisher correctly leaves the message pending.
@@ -59,8 +85,20 @@ public class CompletionOutboxTests
             Assert.All(message.Attempts, attempt => Assert.Equal(expectedStatus == "SUCCESS" ? 122 : 0, attempt.SubmittedAnswer.GetProperty("value").GetInt32()));
             if (expectedStatus == "UNFINISHED")
             {
+                var notificationRow = Assert.Single(rows.Where(x => x.EventType == "UnfinishedSessionNotification"));
+                Assert.NotEqual(row.EventId, notificationRow.EventId);
+                Assert.Null(notificationRow.SentAt);
+                var notification = JsonSerializer.Deserialize<UnfinishedSessionNotificationEvent>(notificationRow.PayloadJson)!;
+                Assert.Equal(SpaceId, notification.SpaceId);
+                Assert.Equal(game.Id, notification.GameId);
+                Assert.Equal("Calcul mental 1", notification.GameTitle);
+                Assert.Equal("UNFINISHED", notification.Status);
+                Assert.Equal(2, notification.AttemptsUsed);
+                Assert.Equal(2, notification.IncorrectAttempts);
+                Assert.Equal(DateTimeOffset.Parse("2026-11-19T14:06:00Z"), notification.CompletedAt);
+                Assert.Equal(notification.CompletedAt.AddHours(24), notification.NextAvailableAt);
                 await service.ExpireDueSessions(default);
-                Assert.Single(await setup.Outbox.AsNoTracking().ToListAsync());
+                Assert.Equal(2, await setup.Outbox.AsNoTracking().CountAsync());
             }
         }
         finally { if (File.Exists(file)) File.Delete(file); }
