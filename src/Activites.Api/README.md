@@ -33,6 +33,55 @@ En Production, le schéma de test n'est pas enregistré. L'implémentation `Deny
 
 L'adaptateur `IProgressPublisher` reste volontairement no-op tant qu'aucun broker/transport n'est configuré. Il retourne « non publié » : les événements restent visibles comme en attente dans `Outbox` et ne sont pas présentés comme livrés à Suivi.Api. Le service ne contacte pas Suivi.Api directement. Une livraison après accusé de réception peut être rejouée en cas de panne entre réception et marquage local; l'idempotence côté consommateur est donc nécessaire.
 
+### Contrat d'historique parent (à intégrer dans Suivi.Api)
+
+`Suivi.Api` est propriétaire de l'historique pédagogique et des routes consommées par le tableau de bord parent. `Activites.Api` ne fournit pas de route d'historique parent et n'expose pas sa base SQLite pour cette consultation. Le consommateur Suivi devra enregistrer les événements de façon idempotente avec `EventId` comme clé de déduplication, puis fournir les consultations protégées par l'autorisation réelle du parent vers l'espace enfant.
+
+Le message `GameSessionCompletedEvent` (champs sérialisés actuellement avec leurs noms C#) a cette forme :
+
+```json
+{
+  "EventId": "<session-guid>",
+  "SessionId": "<session-guid>",
+  "GameId": "<game-guid>",
+  "SpaceId": "<child-space-guid>",
+  "GameType": "MATH",
+  "GameTitle": "Calcul mental 1",
+  "FinalStatus": "UNFINISHED",
+  "AttemptsUsed": 2,
+  "MaxAttempts": 3,
+  "FinalScore": 0,
+  "StartedAt": "2026-11-19T14:00:00Z",
+  "CompletedAt": "2026-11-19T14:08:00Z",
+  "NextAvailableAt": "2026-11-20T14:08:00Z",
+  "ExerciseContentSnapshot": { "expression": "11 + 111" },
+  "Attempts": [
+    {
+      "AttemptId": "<attempt-guid>",
+      "AttemptNumber": 1,
+      "SubmittedAnswer": { "value": 18 },
+      "Correct": false,
+      "Score": 0,
+      "MaxScore": 1,
+      "SubmittedAt": "2026-11-19T14:02:00Z"
+    },
+    {
+      "AttemptId": "<attempt-guid-2>",
+      "AttemptNumber": 2,
+      "SubmittedAnswer": { "value": 20 },
+      "Correct": false,
+      "Score": 0,
+      "MaxScore": 1,
+      "SubmittedAt": "2026-11-19T14:03:00Z"
+    }
+  ]
+}
+```
+
+`SubmittedAnswer` reste un JSON structuré selon le type : MATH utilise `{ "value": 18 }`, MATCHING utilise les associations `{ "matches": { "<left-token-guid>": "<right-token-guid>" } }`, et SENTENCE_ORDERING conserve la séquence `{ "tokens": ["<token-guid>", ...] }`. `ExerciseContentSnapshot` donne le contenu de l'exercice au début de cette session, même si le jeu est modifié ensuite. `FinalScore` est le score de la dernière tentative. `NextAvailableAt` est nul après SUCCESS et contient la date UTC de reprise après FAILED ou UNFINISHED. Aucun nom d'enfant ni autre donnée personnelle n'est transmis; `SpaceId` permet à Suivi de résoudre l'appartenance avec sa propre intégration autorisée.
+
+Suivi pourra exposer, après mise en place de son stockage et de son autorisation, une liste paginée de sessions par espace/jeu et les détails d'une session : statut final, timestamps, disponibilité, snapshot du jeu et tentatives ordonnées avec identifiant, réponse, évaluation et score. Ces routes restent à concevoir et protéger dans Suivi.Api; l'événement autonome évite à Suivi d'interroger la base d'Activites.Api.
+
 ## Routes
 
 - `POST /api/spaces/{spaceId}/games` — créer (`type`, `content`, `title`)
