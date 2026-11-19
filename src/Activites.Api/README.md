@@ -49,6 +49,8 @@ Les règles de session sont configurées par `GameSessions` dans `appsettings.js
 
 `SUCCESS` permet une nouvelle session immédiatement. `FAILED` et `UNFINISHED` bloquent seulement le même jeu dans le même espace jusqu'à `NextAvailableAt`; la disponibilité revient à l'instant exact de cette date UTC.
 
+Chaque nouvelle session fige le titre, le type et le JSON de contenu au démarrage. Chaque tentative garde son identifiant, le JSON exact de la réponse, l'évaluation, le score et l'heure. Les exercices historiques des sessions créées avant l'ajout des instantanés ne peuvent pas être reconstruits rétroactivement ; l'évolution de schéma enregistre le contenu actuellement disponible lors de la mise à niveau.
+
 ## Exécution
 
 Depuis la racine, après avoir défini les variables ci-dessus : `dotnet run --project src/Activites.Api --launch-profile http`. Swagger UI est disponible en développement via `/swagger`. Compiler : `dotnet build src/Activites.Api/Activites.Api.csproj`. Tests : `dotnet test tests/Activites.Api.Tests/Activites.Api.Tests.csproj`.

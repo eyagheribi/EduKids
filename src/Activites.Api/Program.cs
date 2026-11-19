@@ -114,6 +114,7 @@ public sealed class MathEngine : IGameEngine
 
 public sealed class MatchingEngine : IGameEngine
 {
+    private static readonly JsonSerializerOptions AnswerJsonOptions = new(JsonSerializerDefaults.Web);
     public GameType Type => GameType.MATCHING;
     public void Validate(JsonElement content) => _ = Pairs(content);
     public object Generate(JsonElement content)
@@ -123,7 +124,7 @@ public sealed class MatchingEngine : IGameEngine
     }
     public Evaluation Evaluate(JsonElement content, JsonElement answer, JsonElement playable = default)
     {
-        var pairs = Pairs(content); var submitted = answer.Deserialize<MatchingAnswer>()?.Matches ?? throw new DomainException("La réponse doit contenir les associations 'matches'.");
+        var pairs = Pairs(content); var submitted = answer.Deserialize<MatchingAnswer>(AnswerJsonOptions)?.Matches ?? throw new DomainException("La réponse doit contenir les associations 'matches'.");
         if (submitted.Count != pairs.Length) throw new DomainException("Soumettez une association pour chaque paire.");
         if(playable.ValueKind==JsonValueKind.Undefined) throw new DomainException("État jouable manquant.",500);
         var play=playable.Deserialize<MatchingPlayable>()!;
@@ -149,6 +150,7 @@ public sealed class MatchingEngine : IGameEngine
 
 public sealed class SentenceOrderingEngine : IGameEngine
 {
+    private static readonly JsonSerializerOptions AnswerJsonOptions = new(JsonSerializerDefaults.Web);
     public GameType Type => GameType.SENTENCE_ORDERING;
     public void Validate(JsonElement content) => _ = Tokens(content);
     public object Generate(JsonElement content)
@@ -159,7 +161,7 @@ public sealed class SentenceOrderingEngine : IGameEngine
     }
     public Evaluation Evaluate(JsonElement content, JsonElement answer, JsonElement playable = default)
     {
-        var source = Tokens(content); var submitted = answer.Deserialize<SentenceAnswer>()?.Tokens ?? throw new DomainException("La réponse doit contenir la liste 'tokens'.");
+        var source = Tokens(content); var submitted = answer.Deserialize<SentenceAnswer>(AnswerJsonOptions)?.Tokens ?? throw new DomainException("La réponse doit contenir la liste 'tokens'.");
         if(playable.ValueKind==JsonValueKind.Undefined) throw new DomainException("État jouable manquant.",500);
         var play=playable.Deserialize<SentencePlayable>()!;
         var correct = submitted.SequenceEqual(play.CorrectOrder);
@@ -183,9 +185,12 @@ public sealed class SessionRecord
 {
     public Guid Id { get; init; } = Guid.NewGuid(); public Guid SpaceId { get; init; } public GameRecord Game { get; init; } = null!; public DateTimeOffset CreatedAt { get; init; }
     public SessionStatus Status { get; set; } = SessionStatus.ACTIVE; public DateTimeOffset? CompletedAt { get; set; } public DateTimeOffset? NextAvailableAt { get; set; } public DateTimeOffset? InactivityDeadlineAt { get; set; }
+    public string? GameTitleSnapshot { get; set; } public string? GameTypeSnapshot { get; set; } public string? ExerciseContentSnapshot { get; set; }
     public int Version { get; set; } = -1; public string PlayJson { get; set; } = "{}"; public List<AttemptRecord> Attempts { get; } = []; public Dictionary<string, AttemptDto> Idempotency { get; } = new(StringComparer.Ordinal);
+    public GameType EffectiveGameType => Enum.TryParse<GameType>(GameTypeSnapshot, true, out var snapshotType) ? snapshotType : Game.Type;
+    public string EffectiveExerciseContent => ExerciseContentSnapshot ?? Game.Content;
 }
-public sealed record AttemptRecord(int Number, string Answer, Evaluation Evaluation, DateTimeOffset At);
+public sealed record AttemptRecord(int Number, string Answer, Evaluation Evaluation, DateTimeOffset At, Guid AttemptId = default);
 public interface IGameCatalog
 {
     Task<GameRecord?> Find(Guid space, Guid game, CancellationToken ct); Task<List<GameRecord>> List(Guid space, CancellationToken ct); Task Save(GameRecord game, CancellationToken ct); Task Remove(GameRecord game, CancellationToken ct);
@@ -251,6 +256,23 @@ public static class ActivitiesSchemaUpgrade
                 alter.CommandText = "ALTER TABLE Sessions ADD COLUMN Version INTEGER NOT NULL DEFAULT 0";
                 await alter.ExecuteNonQueryAsync(cancellationToken);
             }
+            foreach (var (name, sqlType) in new[]
+                     {
+                         (nameof(SessionRow.GameTitleSnapshot), "TEXT NULL"),
+                         (nameof(SessionRow.GameTypeSnapshot), "TEXT NULL"),
+                         (nameof(SessionRow.ExerciseContentSnapshot), "TEXT NULL")
+                     })
+            {
+                if (columns.Contains(name)) continue;
+                await using var alter = db.Database.GetDbConnection().CreateCommand();
+                alter.CommandText = $"ALTER TABLE Sessions ADD COLUMN {name} {sqlType}";
+                await alter.ExecuteNonQueryAsync(cancellationToken);
+            }
+            await using (var backfill = db.Database.GetDbConnection().CreateCommand())
+            {
+                backfill.CommandText = "UPDATE Sessions SET GameTitleSnapshot=(SELECT Title FROM Games WHERE Games.Id=Sessions.GameId) WHERE GameTitleSnapshot IS NULL; UPDATE Sessions SET GameTypeSnapshot=(SELECT Type FROM Games WHERE Games.Id=Sessions.GameId) WHERE GameTypeSnapshot IS NULL; UPDATE Sessions SET ExerciseContentSnapshot=(SELECT Content FROM Games WHERE Games.Id=Sessions.GameId) WHERE ExerciseContentSnapshot IS NULL";
+                await backfill.ExecuteNonQueryAsync(cancellationToken);
+            }
             await using var index = db.Database.GetDbConnection().CreateCommand();
             index.CommandText = "CREATE INDEX IF NOT EXISTS IX_Sessions_Status_InactivityDeadlineAt ON Sessions (Status, InactivityDeadlineAt)";
             await index.ExecuteNonQueryAsync(cancellationToken);
@@ -262,7 +284,7 @@ public static class ActivitiesSchemaUpgrade
     }
 }
 public sealed class GameRow { public Guid Id { get; set; } public Guid SpaceId { get; set; } public string Type { get; set; } = ""; public string? Title { get; set; } public string Content { get; set; } = ""; public DateTimeOffset CreatedAt { get; set; } public DateTimeOffset UpdatedAt { get; set; } }
-public sealed class SessionRow { public Guid Id { get; set; } public Guid SpaceId { get; set; } public Guid GameId { get; set; } public string Status { get; set; } = "ACTIVE"; public DateTimeOffset CreatedAt { get; set; } public DateTimeOffset? CompletedAt { get; set; } public DateTimeOffset? NextAvailableAt { get; set; } public DateTimeOffset? InactivityDeadlineAt { get; set; } public int Version { get; set; } public string PlayJson { get; set; } = "{}"; public string AttemptsJson { get; set; } = "[]"; public string IdempotencyJson { get; set; } = "{}"; }
+public sealed class SessionRow { public Guid Id { get; set; } public Guid SpaceId { get; set; } public Guid GameId { get; set; } public string Status { get; set; } = "ACTIVE"; public DateTimeOffset CreatedAt { get; set; } public DateTimeOffset? CompletedAt { get; set; } public DateTimeOffset? NextAvailableAt { get; set; } public DateTimeOffset? InactivityDeadlineAt { get; set; } public int Version { get; set; } public string? GameTitleSnapshot { get; set; } public string? GameTypeSnapshot { get; set; } public string? ExerciseContentSnapshot { get; set; } public string PlayJson { get; set; } = "{}"; public string AttemptsJson { get; set; } = "[]"; public string IdempotencyJson { get; set; } = "{}"; }
 public sealed class EfGameCatalog(ActivitiesDbContext db) : IGameCatalog
 {
     public async Task<GameRecord?> Find(Guid space, Guid game, CancellationToken ct) { var x=await db.Games.AsNoTracking().SingleOrDefaultAsync(x=>x.Id==game&&x.SpaceId==space,ct); return x==null?null:ToRecord(x); }
@@ -276,7 +298,7 @@ public sealed class EfGameCatalog(ActivitiesDbContext db) : IGameCatalog
     {
         if(s.Version<0)
         {
-            var inserted=new SessionRow{Id=s.Id,SpaceId=s.SpaceId,GameId=s.Game.Id,Status=s.Status.ToString(),CreatedAt=s.CreatedAt,CompletedAt=s.CompletedAt,NextAvailableAt=s.NextAvailableAt,InactivityDeadlineAt=s.InactivityDeadlineAt,PlayJson=s.PlayJson,AttemptsJson=JsonSerializer.Serialize(s.Attempts),IdempotencyJson=JsonSerializer.Serialize(s.Idempotency),Version=0};
+            var inserted=new SessionRow{Id=s.Id,SpaceId=s.SpaceId,GameId=s.Game.Id,Status=s.Status.ToString(),CreatedAt=s.CreatedAt,CompletedAt=s.CompletedAt,NextAvailableAt=s.NextAvailableAt,InactivityDeadlineAt=s.InactivityDeadlineAt,GameTitleSnapshot=s.GameTitleSnapshot,GameTypeSnapshot=s.GameTypeSnapshot,ExerciseContentSnapshot=s.ExerciseContentSnapshot,PlayJson=s.PlayJson,AttemptsJson=JsonSerializer.Serialize(s.Attempts),IdempotencyJson=JsonSerializer.Serialize(s.Idempotency),Version=0};
             db.Sessions.Add(inserted);
             try { await db.SaveChangesAsync(ct); s.Version=0; return true; }
             catch(DbUpdateException) { db.Entry(inserted).State=EntityState.Detached; return false; }
@@ -297,7 +319,7 @@ public sealed class EfGameCatalog(ActivitiesDbContext db) : IGameCatalog
             .SetProperty(x=>x.InactivityDeadlineAt,(DateTimeOffset?)null).SetProperty(x=>x.Version,x=>x.Version+1),ct);
         return changed==1;
     }
-    private async Task<SessionRecord?> ToSession(SessionRow r,CancellationToken ct) { var g=await db.Games.SingleOrDefaultAsync(g=>g.Id==r.GameId,ct);if(g==null)return null;var s=new SessionRecord{Id=r.Id,SpaceId=r.SpaceId,Game=ToRecord(g),CreatedAt=r.CreatedAt,Status=Enum.Parse<SessionStatus>(r.Status),CompletedAt=r.CompletedAt,NextAvailableAt=r.NextAvailableAt,InactivityDeadlineAt=r.InactivityDeadlineAt,PlayJson=r.PlayJson,Version=r.Version};s.Attempts.AddRange(JsonSerializer.Deserialize<List<AttemptRecord>>(r.AttemptsJson)??[]);foreach(var kv in JsonSerializer.Deserialize<Dictionary<string,AttemptDto>>(r.IdempotencyJson)??[])s.Idempotency[kv.Key]=kv.Value;return s; }
+    private async Task<SessionRecord?> ToSession(SessionRow r,CancellationToken ct) { var g=await db.Games.AsNoTracking().SingleOrDefaultAsync(g=>g.Id==r.GameId,ct);if(g==null)return null;var game=ToRecord(g);var s=new SessionRecord{Id=r.Id,SpaceId=r.SpaceId,Game=game,CreatedAt=r.CreatedAt,Status=Enum.Parse<SessionStatus>(r.Status),CompletedAt=r.CompletedAt,NextAvailableAt=r.NextAvailableAt,InactivityDeadlineAt=r.InactivityDeadlineAt,GameTitleSnapshot=r.GameTitleSnapshot??game.Title,GameTypeSnapshot=r.GameTypeSnapshot??game.Type.ToString(),ExerciseContentSnapshot=r.ExerciseContentSnapshot??game.Content,PlayJson=r.PlayJson,Version=r.Version};s.Attempts.AddRange(JsonSerializer.Deserialize<List<AttemptRecord>>(r.AttemptsJson)??[]);foreach(var kv in JsonSerializer.Deserialize<Dictionary<string,AttemptDto>>(r.IdempotencyJson)??[])s.Idempotency[kv.Key]=kv.Value;return s; }
     private static GameRecord ToRecord(GameRow x)=>new(x.Id,x.SpaceId,Enum.Parse<GameType>(x.Type),x.Title,x.Content,x.CreatedAt,x.UpdatedAt);
 }
 public interface ISpaceAccess { Task<bool> CanAccess(Guid spaceId, ClaimsPrincipal user, string activityType, CancellationToken ct); }
@@ -323,7 +345,7 @@ public sealed class GameService(IGameCatalog catalog, IEnumerable<IGameEngine> e
         for(var i=0;i<existing.Count;i++) if(existing[i].Status==SessionStatus.ACTIVE) existing[i]=await ExpireIfDue(existing[i],ct);
         var active=existing.FirstOrDefault(x=>x.Status==SessionStatus.ACTIVE); if(active!=null) return SessionDtoOf(active,true);
         var blocked=existing.Where(IsReplayBlocked).OrderByDescending(x=>x.NextAvailableAt).FirstOrDefault(); if(blocked!=null) throw new DomainException($"Jeu indisponible jusqu'à {blocked.NextAvailableAt:O}.",409);
-        var session=new SessionRecord{SpaceId=s,Game=g,CreatedAt=clock.UtcNow,PlayJson=JsonSerializer.Serialize(Engine(g.Type).Generate(JsonDocument.Parse(g.Content).RootElement))};
+        var session=new SessionRecord{SpaceId=s,Game=g,CreatedAt=clock.UtcNow,GameTitleSnapshot=g.Title,GameTypeSnapshot=g.Type.ToString(),ExerciseContentSnapshot=g.Content,PlayJson=JsonSerializer.Serialize(Engine(g.Type).Generate(JsonDocument.Parse(g.Content).RootElement))};
         if(!await catalog.SaveSession(session,ct))
         {
             var concurrent=(await catalog.Sessions(s,id,ct)).FirstOrDefault(x=>x.Status==SessionStatus.ACTIVE);
@@ -333,17 +355,17 @@ public sealed class GameService(IGameCatalog catalog, IEnumerable<IGameEngine> e
         return SessionDtoOf(session,true);
     }
     public async Task<AvailabilityDto> Availability(Guid s,Guid id,ClaimsPrincipal u,CancellationToken ct) { var g=await Required(s,id,ct); await Ensure(s,u,g.Type,ct); var sessions=await catalog.Sessions(s,id,ct); for(var i=0;i<sessions.Count;i++)if(sessions[i].Status==SessionStatus.ACTIVE)sessions[i]=await ExpireIfDue(sessions[i],ct); var wait=sessions.Where(IsReplayBlocked).OrderByDescending(x=>x.NextAvailableAt).FirstOrDefault(); return new(wait==null,wait?.NextAvailableAt); }
-    public async Task<SessionDto> Session(Guid s,Guid id,ClaimsPrincipal u,CancellationToken ct) { var x=await catalog.GetSession(id,ct); if(x==null||x.SpaceId!=s) throw new DomainException("Session introuvable.",404); await Ensure(s,u,x.Game.Type,ct); x=await ExpireIfDue(x,ct); return SessionDtoOf(x,x.Status==SessionStatus.ACTIVE); }
+    public async Task<SessionDto> Session(Guid s,Guid id,ClaimsPrincipal u,CancellationToken ct) { var x=await catalog.GetSession(id,ct); if(x==null||x.SpaceId!=s) throw new DomainException("Session introuvable.",404); await Ensure(s,u,x.EffectiveGameType,ct); x=await ExpireIfDue(x,ct); return SessionDtoOf(x,x.Status==SessionStatus.ACTIVE); }
     public async Task<AttemptDto> Submit(Guid s,Guid sid,SubmitAttemptRequest r,ClaimsPrincipal u,CancellationToken ct)
     {
-        if(string.IsNullOrWhiteSpace(r.IdempotencyKey)||r.IdempotencyKey.Length>128) throw new DomainException("Un IdempotencyKey valide est requis."); var x=await catalog.GetSession(sid,ct); if(x==null||x.SpaceId!=s) throw new DomainException("Session introuvable.",404); await Ensure(s,u,x.Game.Type,ct); x=await ExpireIfDue(x,ct);
+        if(string.IsNullOrWhiteSpace(r.IdempotencyKey)||r.IdempotencyKey.Length>128) throw new DomainException("Un IdempotencyKey valide est requis."); var x=await catalog.GetSession(sid,ct); if(x==null||x.SpaceId!=s) throw new DomainException("Session introuvable.",404); await Ensure(s,u,x.EffectiveGameType,ct); x=await ExpireIfDue(x,ct);
         AttemptDto dto;
         lock(x) { if(x.Idempotency.TryGetValue(r.IdempotencyKey,out var cached)) return cached; if(x.Status!=SessionStatus.ACTIVE) throw new DomainException("Cette session est terminée.",409); if(x.Attempts.Count>=MaxAttempts) throw new DomainException("Limite de tentatives atteinte.",409);
-            var result=Engine(x.Game.Type).Evaluate(JsonDocument.Parse(x.Game.Content).RootElement,r.Answer,JsonDocument.Parse(x.PlayJson).RootElement); var now=clock.UtcNow; var number=x.Attempts.Count+1; x.Attempts.Add(new(number,r.Answer.GetRawText(),result,now));
+            var result=Engine(x.EffectiveGameType).Evaluate(JsonDocument.Parse(x.EffectiveExerciseContent).RootElement,r.Answer,JsonDocument.Parse(x.PlayJson).RootElement); var now=clock.UtcNow; var number=x.Attempts.Count+1; var attemptId=Guid.NewGuid(); x.Attempts.Add(new(number,r.Answer.GetRawText(),result,now,attemptId));
             if(result.Correct) { x.Status=SessionStatus.SUCCESS; x.CompletedAt=now; x.NextAvailableAt=null; x.InactivityDeadlineAt=null; }
             else if(number==MaxAttempts) { x.Status=SessionStatus.FAILED; x.CompletedAt=now; x.NextAvailableAt=now+Cooldown; x.InactivityDeadlineAt=null; }
             else { x.InactivityDeadlineAt=now+InactivityTimeout; }
-            dto=new AttemptDto(Guid.NewGuid(),number,result.Correct,result.Score,result.MaxScore,now,MaxAttempts-number,x.Status.ToString(),x.Status==SessionStatus.FAILED?JsonSerializer.SerializeToElement(result.Correction):null,x.NextAvailableAt); x.Idempotency[r.IdempotencyKey]=dto;
+            dto=new AttemptDto(attemptId,number,result.Correct,result.Score,result.MaxScore,now,MaxAttempts-number,x.Status.ToString(),x.Status==SessionStatus.FAILED?JsonSerializer.SerializeToElement(result.Correction):null,x.NextAvailableAt); x.Idempotency[r.IdempotencyKey]=dto;
         }
         if(!await catalog.SaveSession(x,ct))
         {
@@ -369,7 +391,7 @@ public sealed class GameService(IGameCatalog catalog, IEnumerable<IGameEngine> e
         return updated;
     }
     private Task PublishCompletion(SessionRecord session,CancellationToken ct) => session.CompletedAt is { } completedAt
-        ? publisher.Publish(new GameSessionCompletedEvent(session.Id,session.Id,session.Game.Id,session.SpaceId,session.Game.Type.ToString(),session.Status.ToString(),completedAt,session.NextAvailableAt),ct)
+        ? publisher.Publish(new GameSessionCompletedEvent(session.Id,session.Id,session.Game.Id,session.SpaceId,session.EffectiveGameType.ToString(),session.Status.ToString(),completedAt,session.NextAvailableAt),ct)
         : Task.CompletedTask;
     private bool IsReplayBlocked(SessionRecord session) =>
         (session.Status is SessionStatus.FAILED or SessionStatus.UNFINISHED)
@@ -384,7 +406,7 @@ public sealed class GameService(IGameCatalog catalog, IEnumerable<IGameEngine> e
         if(includeGame)
         {
             var raw=JsonDocument.Parse(x.PlayJson).RootElement;
-            object safe=x.Game.Type switch
+            object safe=x.EffectiveGameType switch
             {
                 GameType.MATCHING => new MatchingPlayablePublic(raw.GetProperty("Left").Deserialize<PairView[]>()!,raw.GetProperty("Right").Deserialize<PairView[]>()!),
                 GameType.SENTENCE_ORDERING => new SentencePlayablePublic(raw.GetProperty("Tokens").Deserialize<Guid[]>()!,raw.GetProperty("Words").Deserialize<Dictionary<Guid,string>>()!),
@@ -392,7 +414,7 @@ public sealed class GameService(IGameCatalog catalog, IEnumerable<IGameEngine> e
             };
             content=JsonSerializer.SerializeToElement(safe);
         }
-        return new(x.Id,x.Game.Id,x.SpaceId,x.Status.ToString(),x.Attempts.Count,MaxAttempts,x.NextAvailableAt,includeGame?new(x.Game.Id,x.Game.Type.ToString(),content!.Value):null,x.InactivityDeadlineAt);
+        return new(x.Id,x.Game.Id,x.SpaceId,x.Status.ToString(),x.Attempts.Count,MaxAttempts,x.NextAvailableAt,includeGame?new(x.Game.Id,x.EffectiveGameType.ToString(),content!.Value):null,x.InactivityDeadlineAt);
     }
 }
 
