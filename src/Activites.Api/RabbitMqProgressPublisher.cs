@@ -17,7 +17,6 @@ public sealed class RabbitMqProgressPublisher : IProgressPublisher, IAsyncDispos
 {
     public const string ExchangeName = "edukids.game-events";
     public const string RoutingKey = "game.session.completed.v1";
-    public const string QueueName = "edukids.suivi.game-session-completed.v1";
     public const string EventType = "GameSessionCompleted";
 
     private static readonly CreateChannelOptions ConfirmedChannelOptions = new(
@@ -55,15 +54,7 @@ public sealed class RabbitMqProgressPublisher : IProgressPublisher, IAsyncDispos
 
             try
             {
-                // BasicPublishAsync completes only after the publisher confirmation when tracking is enabled.
-                await activeChannel.BasicPublishAsync(
-                    exchange: ExchangeName,
-                    routingKey: RoutingKey,
-                    mandatory: true,
-                    basicProperties: properties,
-                    body: body,
-                    cancellationToken: cancellationToken)
-                    .AsTask()
+                await PublishMandatoryAndConfirmedAsync(activeChannel, properties, body, cancellationToken)
                     .WaitAsync(TimeSpan.FromSeconds(Math.Max(1, options.PublisherConfirmTimeoutSeconds)), cancellationToken);
                 return true;
             }
@@ -82,6 +73,23 @@ public sealed class RabbitMqProgressPublisher : IProgressPublisher, IAsyncDispos
     }
 
     public static byte[] SerializeMessage(GameSessionCompletedEvent message) => JsonSerializer.SerializeToUtf8Bytes(message);
+
+    // RabbitMQ.Client's tracked BasicPublishAsync fails for a nack or a mandatory basic.return.
+    // Awaiting both its return and publisher confirmation guarantees that "true" means routable.
+    public static Task PublishMandatoryAndConfirmedAsync(
+        IChannel channel,
+        BasicProperties properties,
+        ReadOnlyMemory<byte> body,
+        CancellationToken cancellationToken) => channel.BasicPublishAsync(
+            exchange: ExchangeName,
+            routingKey: RoutingKey,
+            mandatory: true,
+            basicProperties: properties,
+            body: body,
+            cancellationToken: cancellationToken).AsTask();
+
+    public static Task DeclarePublisherTopologyAsync(IChannel channel, CancellationToken cancellationToken) =>
+        channel.ExchangeDeclareAsync(ExchangeName, ExchangeType.Topic, durable: true, autoDelete: false, cancellationToken: cancellationToken);
 
     public static BasicProperties CreateProperties(GameSessionCompletedEvent message) => new()
     {
@@ -119,9 +127,7 @@ public sealed class RabbitMqProgressPublisher : IProgressPublisher, IAsyncDispos
         try
         {
             channel = await connection.CreateChannelAsync(ConfirmedChannelOptions, cancellationToken);
-            await channel.ExchangeDeclareAsync(ExchangeName, ExchangeType.Topic, durable: true, autoDelete: false, cancellationToken: cancellationToken);
-            await channel.QueueDeclareAsync(QueueName, durable: true, exclusive: false, autoDelete: false, cancellationToken: cancellationToken);
-            await channel.QueueBindAsync(QueueName, ExchangeName, RoutingKey, cancellationToken: cancellationToken);
+            await DeclarePublisherTopologyAsync(channel, cancellationToken);
             return channel;
         }
         catch

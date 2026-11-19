@@ -2,6 +2,8 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using System.Reflection;
+using RabbitMQ.Client;
 
 public class RabbitMqPublisherTests
 {
@@ -32,6 +34,45 @@ public class RabbitMqPublisherTests
         Assert.Equal(0, root.GetProperty("FinalScore").GetInt32());
         Assert.Equal(1, root.GetProperty("FinalMaxScore").GetInt32());
         Assert.Equal(2, root.GetProperty("Attempts").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task PublisherTopologyDoesNotRedeclareSuiviOwnedQuorumQueueOrBinding()
+    {
+        // Suivi owns this queue and may declare x-queue-type=quorum and x-dead-letter-exchange.
+        // The publisher topology must therefore be limited to its exchange declaration.
+        var channel = DispatchProxy.Create<IChannel, RecordingChannelProxy>();
+        var calls = (RecordingChannelProxy)(object)channel;
+
+        await RabbitMqProgressPublisher.DeclarePublisherTopologyAsync(channel, default);
+
+        var declaration = Assert.Single(calls.MethodNames);
+        Assert.Equal("ExchangeDeclareAsync", declaration);
+        Assert.DoesNotContain("QueueDeclareAsync", calls.MethodNames);
+        Assert.DoesNotContain("QueueBindAsync", calls.MethodNames);
+        Assert.Equal(RabbitMqProgressPublisher.ExchangeName, calls.Arguments![0]?.ToString());
+        Assert.Equal(ExchangeType.Topic, calls.Arguments[1]?.ToString());
+        Assert.Contains(true, calls.Arguments.OfType<bool>()); // durable exchange
+    }
+
+    [Fact]
+    public async Task PublisherUsesMandatoryRoutingAndPropagatesReturnedOrRejectedPublish()
+    {
+        var channel = DispatchProxy.Create<IChannel, RecordingChannelProxy>();
+        var calls = (RecordingChannelProxy)(object)channel;
+        calls.PublishFailure = new IOException("simulated broker return/nack");
+
+        var error = await Record.ExceptionAsync(() => RabbitMqProgressPublisher.PublishMandatoryAndConfirmedAsync(
+            channel,
+            RabbitMqProgressPublisher.CreateProperties(CompletionEvent()),
+            new byte[] { 1, 2, 3 },
+            default));
+
+        Assert.IsType<IOException>(error);
+        Assert.Equal("BasicPublishAsync", Assert.Single(calls.MethodNames));
+        Assert.Equal(RabbitMqProgressPublisher.ExchangeName, calls.Arguments![0]?.ToString());
+        Assert.Equal(RabbitMqProgressPublisher.RoutingKey, calls.Arguments[1]?.ToString());
+        Assert.True(Assert.IsType<bool>(calls.Arguments[2]));
     }
 
     [Fact]
@@ -88,6 +129,7 @@ public class RabbitMqPublisherTests
         Assert.Null(delivered.LastError);
         Assert.Equal(2, publisher.Messages.Count);
         Assert.All(publisher.Messages, message => Assert.Equal(expected.EventId, message.EventId));
+        Assert.Equal(JsonSerializer.Serialize(expected), JsonSerializer.Serialize(publisher.Messages[^1]));
         Assert.Equal(expected.Attempts.Count, publisher.Messages[^1].Attempts.Count);
         Assert.Equal("11 + 111", publisher.Messages[^1].GameContentSnapshot.GetProperty("expression").GetString());
         Assert.Equal(expected.FinalScore, publisher.Messages[^1].FinalScore);
@@ -148,5 +190,23 @@ public class RabbitMqPublisherTests
         }
         public ActivitiesDbContext CreateContext() => new(options);
         public void Dispose() { if (File.Exists(path)) File.Delete(path); }
+    }
+
+    public class RecordingChannelProxy : DispatchProxy
+    {
+        public List<string> MethodNames { get; } = [];
+        public object?[]? Arguments { get; private set; }
+        public Exception? PublishFailure { get; set; }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            MethodNames.Add(targetMethod!.Name);
+            Arguments = args;
+            if (targetMethod.Name == "BasicPublishAsync" && PublishFailure is not null)
+                return ValueTask.FromException(PublishFailure);
+            if (targetMethod.ReturnType == typeof(Task)) return Task.CompletedTask;
+            if (targetMethod.ReturnType == typeof(ValueTask)) return ValueTask.CompletedTask;
+            return Activator.CreateInstance(targetMethod.ReturnType);
+        }
     }
 }
