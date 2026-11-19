@@ -75,12 +75,21 @@ public class CompletionOutboxTests
             Assert.Equal("GameSessionCompleted", row.EventType);
             Assert.Null(row.SentAt); // The no-op publisher correctly leaves the message pending.
             var message = JsonSerializer.Deserialize<GameSessionCompletedEvent>(row.PayloadJson)!;
+            Assert.Equal(1, message.SchemaVersion);
             Assert.Equal(expectedStatus, message.FinalStatus);
             Assert.Equal(session.Id, message.SessionId);
             Assert.Equal("Calcul mental 1", message.GameTitle);
-            Assert.Equal("11 + 111", message.ExerciseContentSnapshot.GetProperty("expression").GetString());
+            Assert.Equal("11 + 111", message.GameContentSnapshot.GetProperty("expression").GetString());
             Assert.Equal(attemptCount, message.AttemptsUsed);
             Assert.Equal(attemptCount, message.Attempts.Count);
+            Assert.Equal(expectedStatus == "SUCCESS" ? 1 : 0, message.FinalScore);
+            Assert.Equal(1, message.FinalMaxScore);
+            Assert.Equal(message.Attempts[^1].Score, message.FinalScore);
+            Assert.Equal(message.Attempts[^1].MaxScore, message.FinalMaxScore);
+            using var serializedEvent = JsonDocument.Parse(row.PayloadJson);
+            Assert.Equal(1, serializedEvent.RootElement.GetProperty("SchemaVersion").GetInt32());
+            Assert.True(serializedEvent.RootElement.TryGetProperty("GameContentSnapshot", out _));
+            Assert.False(serializedEvent.RootElement.TryGetProperty("ExerciseContentSnapshot", out _));
             Assert.Equal(Enumerable.Range(1, attemptCount), message.Attempts.Select(x => x.AttemptNumber));
             Assert.All(message.Attempts, attempt => Assert.Equal(expectedStatus == "SUCCESS" ? 122 : 0, attempt.SubmittedAnswer.GetProperty("value").GetInt32()));
             if (expectedStatus == "UNFINISHED")

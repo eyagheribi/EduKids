@@ -29,7 +29,7 @@ Les requêtes sans credential ou avec un credential incorrect reçoivent `401 Un
 
 En Production, le schéma de test n'est pas enregistré. L'implémentation `DenyAllSpaceAccess` refuse l'accès jusqu'à son remplacement par l'adaptateur d'authentification et d'autorisation connecté à `Espaces.Api`.
 
-`GameSessionCompleted` est le contrat de sortie vers Suivi.Api. Il contient un EventId stable (l'identifiant de session), les métadonnées et instantané du jeu, le statut final, le score et chaque tentative avec sa réponse JSON exacte. Chaque transition terminale écrit cet événement dans la table SQLite `Outbox` dans la même transaction que la sauvegarde de la session. Le worker réessaie les événements non acquittés; la publication est au moins une fois, donc le futur consommateur Suivi doit dédupliquer par `EventId`.
+`GameSessionCompleted` est le contrat de sortie vers Suivi.Api, versionné avec `SchemaVersion: 1`. Il contient un EventId stable (l'identifiant de session), les métadonnées et l'instantané immuable `GameContentSnapshot`, le statut final, les scores du dernier essai et chaque tentative avec sa réponse JSON exacte. Chaque transition terminale écrit cet événement dans la table SQLite `Outbox` dans la même transaction que la sauvegarde de la session. Le worker réessaie les événements non acquittés; la publication est au moins une fois, donc le futur consommateur Suivi doit dédupliquer par `EventId`.
 
 L'adaptateur `IProgressPublisher` reste volontairement no-op tant qu'aucun broker/transport n'est configuré. Il retourne « non publié » : les événements restent visibles comme en attente dans `Outbox` et ne sont pas présentés comme livrés à Suivi.Api. Le service ne contacte pas Suivi.Api directement. Une livraison après accusé de réception peut être rejouée en cas de panne entre réception et marquage local; l'idempotence côté consommateur est donc nécessaire.
 
@@ -41,6 +41,7 @@ Le message `GameSessionCompletedEvent` (champs sérialisés actuellement avec le
 
 ```json
 {
+  "SchemaVersion": 1,
   "EventId": "<session-guid>",
   "SessionId": "<session-guid>",
   "GameId": "<game-guid>",
@@ -51,10 +52,11 @@ Le message `GameSessionCompletedEvent` (champs sérialisés actuellement avec le
   "AttemptsUsed": 2,
   "MaxAttempts": 3,
   "FinalScore": 0,
+  "FinalMaxScore": 1,
   "StartedAt": "2026-11-19T14:00:00Z",
   "CompletedAt": "2026-11-19T14:08:00Z",
   "NextAvailableAt": "2026-11-20T14:08:00Z",
-  "ExerciseContentSnapshot": { "expression": "11 + 111" },
+  "GameContentSnapshot": { "expression": "11 + 111" },
   "Attempts": [
     {
       "AttemptId": "<attempt-guid>",
@@ -78,7 +80,9 @@ Le message `GameSessionCompletedEvent` (champs sérialisés actuellement avec le
 }
 ```
 
-`SubmittedAnswer` reste un JSON structuré selon le type : MATH utilise `{ "value": 18 }`, MATCHING utilise les associations `{ "matches": { "<left-token-guid>": "<right-token-guid>" } }`, et SENTENCE_ORDERING conserve la séquence `{ "tokens": ["<token-guid>", ...] }`. `ExerciseContentSnapshot` donne le contenu de l'exercice au début de cette session, même si le jeu est modifié ensuite. `FinalScore` est le score de la dernière tentative. `NextAvailableAt` est nul après SUCCESS et contient la date UTC de reprise après FAILED ou UNFINISHED. Aucun nom d'enfant ni autre donnée personnelle n'est transmis; `SpaceId` permet à Suivi de résoudre l'appartenance avec sa propre intégration autorisée.
+`SubmittedAnswer` reste un JSON structuré selon le type : MATH utilise `{ "value": 18 }`, MATCHING utilise les associations `{ "matches": { "<left-token-guid>": "<right-token-guid>" } }`, et SENTENCE_ORDERING conserve la séquence `{ "tokens": ["<token-guid>", ...] }`. `GameContentSnapshot` donne le contenu de l'exercice au début de cette session, même si le jeu est modifié ensuite. `FinalScore` et `FinalMaxScore` sont copiés du dernier enregistrement de tentative; le maximum n'est jamais déduit de `MaxAttempts`. Il vaut 1 pour MATH, le nombre de paires pour MATCHING, et le maximum effectivement renvoyé par le moteur SENTENCE_ORDERING. Pour UNFINISHED, ils décrivent la dernière réponse soumise. `NextAvailableAt` est nul après SUCCESS et contient la date UTC de reprise après FAILED ou UNFINISHED. Aucun nom d'enfant ni autre donnée personnelle n'est transmis; `SpaceId` permet à Suivi de résoudre l'appartenance avec sa propre intégration autorisée.
+
+Les messages `GameSessionCompleted` déjà en attente et dépourvus de `SchemaVersion` sont reconnus comme l'ancien format. Avant publication, le worker remplace `ExerciseContentSnapshot` par `GameContentSnapshot`, conserve EventId et l'historique de tentatives, recalcule les deux scores depuis la dernière tentative et écrit le JSON version 1 dans la même ligne d'outbox. Il ne marque pas le message comme envoyé pendant cette conversion. Si le contenu ou les tentatives nécessaires manquent, le worker conserve le message en attente et enregistre l'erreur au lieu d'émettre des valeurs inventées.
 
 Suivi pourra exposer, après mise en place de son stockage et de son autorisation, une liste paginée de sessions par espace/jeu et les détails d'une session : statut final, timestamps, disponibilité, snapshot du jeu et tentatives ordonnées avec identifiant, réponse, évaluation et score. Ces routes restent à concevoir et protéger dans Suivi.Api; l'événement autonome évite à Suivi d'interroger la base d'Activites.Api.
 

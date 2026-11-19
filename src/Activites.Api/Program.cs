@@ -82,9 +82,103 @@ public sealed record SessionDto(Guid Id, Guid GameId, Guid SpaceId, string Statu
 public sealed record AttemptDto(Guid Id, int Number, bool Correct, int Score, int MaxScore, DateTimeOffset SubmittedAt, int AttemptsRemaining, string Status, JsonElement? Correction, DateTimeOffset? NextAvailableAt);
 public sealed record AvailabilityDto(bool Available, DateTimeOffset? NextAvailableAt);
 public sealed record AttemptCompletedEvent(Guid AttemptId, int AttemptNumber, JsonElement SubmittedAnswer, bool Correct, int Score, int MaxScore, DateTimeOffset SubmittedAt);
-public sealed record GameSessionCompletedEvent(Guid EventId, Guid SessionId, Guid GameId, Guid SpaceId, string GameType, string? GameTitle, string FinalStatus, int AttemptsUsed, int MaxAttempts, int FinalScore, DateTimeOffset StartedAt, DateTimeOffset CompletedAt, DateTimeOffset? NextAvailableAt, JsonElement ExerciseContentSnapshot, IReadOnlyList<AttemptCompletedEvent> Attempts);
+public sealed record GameSessionCompletedEvent(int SchemaVersion, Guid EventId, Guid SessionId, Guid GameId, Guid SpaceId, string GameType, string? GameTitle, string FinalStatus, int AttemptsUsed, int MaxAttempts, int FinalScore, int FinalMaxScore, DateTimeOffset StartedAt, DateTimeOffset CompletedAt, DateTimeOffset? NextAvailableAt, JsonElement GameContentSnapshot, IReadOnlyList<AttemptCompletedEvent> Attempts);
 public sealed record UnfinishedSessionNotificationEvent(Guid EventId, Guid SpaceId, Guid GameId, string? GameTitle, string Status, int AttemptsUsed, int IncorrectAttempts, DateTimeOffset CompletedAt, DateTimeOffset NextAvailableAt);
 public sealed record OutboxMessage(Guid EventId, string EventType, string PayloadJson, DateTimeOffset CreatedAt, int Attempts, string? LastError);
+public static class GameSessionCompletedEventPayload
+{
+    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
+
+    public static GameSessionCompletedEvent Deserialize(string payload)
+    {
+        using var document = JsonDocument.Parse(payload);
+        var root = document.RootElement;
+        var schemaVersion = TryGet(root, "SchemaVersion", out var version) && version.TryGetInt32(out var parsedVersion) ? parsedVersion : 0;
+        GameSessionCompletedEvent result;
+        if (schemaVersion == 1)
+        {
+            result = JsonSerializer.Deserialize<GameSessionCompletedEvent>(payload, JsonOptions)
+                ?? throw new JsonException("Completion event payload is empty.");
+        }
+        else if (schemaVersion == 0)
+        {
+            // Upgrade the previous pending outbox shape in place: retain EventId and attempt data,
+            // rename the immutable snapshot, and derive both score fields from the final attempt.
+            if (!TryGet(root, "GameContentSnapshot", out var content)
+                && !TryGet(root, "ExerciseContentSnapshot", out content))
+                throw new JsonException("Legacy completion payload has no game content snapshot.");
+            if (!TryGet(root, "Attempts", out var attemptsNode) || attemptsNode.ValueKind != JsonValueKind.Array)
+                throw new JsonException("Legacy completion payload has no attempt history.");
+            var attempts = attemptsNode.Deserialize<AttemptCompletedEvent[]>(JsonOptions) ?? [];
+            if (attempts.Length == 0)
+                throw new JsonException("Legacy completion payload has no final attempt for score normalization.");
+            result = new GameSessionCompletedEvent(
+                1,
+                RequiredGuid(root, "EventId"),
+                RequiredGuid(root, "SessionId"),
+                RequiredGuid(root, "GameId"),
+                RequiredGuid(root, "SpaceId"),
+                RequiredString(root, "GameType"),
+                TryGet(root, "GameTitle", out var title) && title.ValueKind != JsonValueKind.Null ? title.GetString() : null,
+                RequiredString(root, "FinalStatus"),
+                RequiredInt(root, "AttemptsUsed"),
+                RequiredInt(root, "MaxAttempts"),
+                attempts[^1].Score,
+                attempts[^1].MaxScore,
+                RequiredDate(root, "StartedAt"),
+                RequiredDate(root, "CompletedAt"),
+                TryGet(root, "NextAvailableAt", out var availableAt) && availableAt.ValueKind != JsonValueKind.Null ? availableAt.GetDateTimeOffset() : null,
+                content.Clone(),
+                attempts);
+        }
+        else
+        {
+            throw new JsonException($"Unsupported completion event schema version {schemaVersion}.");
+        }
+
+        if (result.Attempts.Count == 0)
+            throw new JsonException("Completion event has no attempts to validate its final score.");
+        if (result.EventId == Guid.Empty || result.SessionId == Guid.Empty || result.GameId == Guid.Empty || result.SpaceId == Guid.Empty)
+            throw new JsonException("Completion event is missing a stable identifier.");
+        if (result.GameContentSnapshot.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
+            throw new JsonException("Completion event has no immutable game content snapshot.");
+        var lastAttempt = result.Attempts[^1];
+        if (result.AttemptsUsed != result.Attempts.Count || result.FinalScore != lastAttempt.Score || result.FinalMaxScore != lastAttempt.MaxScore)
+            throw new JsonException("Completion event score fields do not match the final attempt.");
+        return result;
+    }
+
+    private static bool TryGet(JsonElement element, string name, out JsonElement value)
+    {
+        foreach (var property in element.EnumerateObject())
+            if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase)) { value = property.Value; return true; }
+        value = default;
+        return false;
+    }
+
+    private static Guid RequiredGuid(JsonElement element, string name) => TryGet(element, name, out var value) && value.TryGetGuid(out var result) ? result : throw new JsonException($"Missing or invalid {name}.");
+    private static string RequiredString(JsonElement element, string name) => TryGet(element, name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString()! : throw new JsonException($"Missing or invalid {name}.");
+    private static int RequiredInt(JsonElement element, string name) => TryGet(element, name, out var value) && value.TryGetInt32(out var result) ? result : throw new JsonException($"Missing or invalid {name}.");
+    private static DateTimeOffset RequiredDate(JsonElement element, string name) => TryGet(element, name, out var value) && value.TryGetDateTimeOffset(out var result) ? result : throw new JsonException($"Missing or invalid {name}.");
+}
+public static class CompletionOutboxPayloadUpgrader
+{
+    public static async Task<GameSessionCompletedEvent> ReadForDispatch(ActivitiesDbContext db, OutboxRow row, CancellationToken ct)
+    {
+        if (row.SentAt is not null) throw new InvalidOperationException("A sent outbox event cannot be dispatched again.");
+        var message = GameSessionCompletedEventPayload.Deserialize(row.PayloadJson);
+        if (message.EventId != row.EventId) throw new JsonException("Outbox key does not match the completion event identifier.");
+        var currentPayload = JsonSerializer.Serialize(message);
+        if (!string.Equals(row.PayloadJson, currentPayload, StringComparison.Ordinal))
+        {
+            var changed = await db.Outbox.Where(x => x.EventId == row.EventId && x.SentAt == null)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.PayloadJson, currentPayload), ct);
+            if (changed != 1) throw new InvalidOperationException("Pending completion event changed before its schema upgrade.");
+            row.PayloadJson = currentPayload;
+        }
+        return message;
+    }
+}
 public sealed class GameSessionOptions { public int MaxAttempts { get; set; } = 3; public int InactivityTimeoutMinutes { get; set; } = 5; public int FailureCooldownHours { get; set; } = 24; public int ExpirationPollingIntervalSeconds { get; set; } = 15; }
 public sealed record Evaluation(bool Correct, int Score, int MaxScore, object? Correction);
 public sealed record PairInput(string Left, string Right);
@@ -446,7 +540,8 @@ public sealed class GameService(IGameCatalog catalog, IEnumerable<IGameEngine> e
             a.At)).ToArray();
         var content = JsonDocument.Parse(session.EffectiveExerciseContent).RootElement.Clone();
         var completedAt = session.CompletedAt ?? clock.UtcNow;
-        return new(session.Id, session.Id, session.Game.Id, session.SpaceId, session.EffectiveGameType.ToString(), session.GameTitleSnapshot, session.Status.ToString(), attempts.Length, MaxAttempts, attempts.LastOrDefault()?.Score ?? 0, session.CreatedAt, completedAt, session.NextAvailableAt, content, attempts);
+        var finalAttempt = attempts.LastOrDefault() ?? throw new InvalidOperationException("A terminal session must have at least one submitted attempt.");
+        return new(1, session.Id, session.Id, session.Game.Id, session.SpaceId, session.EffectiveGameType.ToString(), session.GameTitleSnapshot, session.Status.ToString(), attempts.Length, MaxAttempts, finalAttempt.Score, finalAttempt.MaxScore, session.CreatedAt, completedAt, session.NextAvailableAt, content, attempts);
     }
     private static Guid DeterministicAttemptId(Guid sessionId, int number)
     {
@@ -510,7 +605,7 @@ public sealed class OutboxDispatchWorker(IServiceScopeFactory scopeFactory, IOpt
                         {
                             case "GameSessionCompleted":
                             {
-                                var message = JsonSerializer.Deserialize<GameSessionCompletedEvent>(row.PayloadJson) ?? throw new InvalidOperationException("Outbox payload is empty.");
+                                var message = await CompletionOutboxPayloadUpgrader.ReadForDispatch(db, row, stoppingToken);
                                 sent = await scope.ServiceProvider.GetRequiredService<IProgressPublisher>().Publish(message, stoppingToken);
                                 break;
                             }
