@@ -47,7 +47,13 @@ public sealed class AttemptEvent
 
 // --- Service ---
 
+public interface ISessionIngestionService
+{
+    Task<bool> IngestAsync(GameSessionCompletedEvent evt, CancellationToken ct);
+}
+
 public sealed class SessionIngestionService(SuiviDbContext db, ILogger<SessionIngestionService> logger)
+    : ISessionIngestionService
 {
     public async Task<bool> IngestAsync(GameSessionCompletedEvent evt, CancellationToken ct)
     {

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Suivi.Api.Application;
 using Suivi.Api.Domain.Exceptions;
+using Suivi.Api.Infrastructure.Messaging;
 using Suivi.Api.Infrastructure.Persistence;
 using Suivi.Api.Infrastructure.Security;
 
@@ -18,7 +19,26 @@ builder.Services.AddDbContext<SuiviDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("Suivi") ?? "Data Source=suivi.db"));
 
 builder.Services.AddScoped<SessionIngestionService>();
+builder.Services.AddScoped<ISessionIngestionService>(services =>
+    services.GetRequiredService<SessionIngestionService>());
 builder.Services.AddScoped<ProgressService>();
+
+builder.Services
+    .AddOptions<RabbitMqOptions>()
+    .Bind(builder.Configuration.GetSection(RabbitMqOptions.SectionName))
+    .Validate(options =>
+        !string.IsNullOrWhiteSpace(options.HostName)
+        && options.Port is > 0 and <= 65535
+        && !string.IsNullOrWhiteSpace(options.Username)
+        && !string.IsNullOrWhiteSpace(options.Password)
+        && options.PrefetchCount > 0
+        && options.MaxDeliveryAttempts > 0
+        && options.InitialReconnectDelaySeconds > 0
+        && options.MaxReconnectDelaySeconds >= options.InitialReconnectDelaySeconds,
+        "RabbitMq settings must specify valid connection credentials, prefetch, delivery, and retry limits.")
+    .ValidateOnStart();
+builder.Services.AddSingleton<GameSessionCompletedMessageProcessor>();
+builder.Services.AddHostedService<GameSessionCompletedConsumer>();
 
 // Auth: dev-only test scheme; production must wire Espaces.Api JWT.
 if (builder.Environment.IsDevelopment())
