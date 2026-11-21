@@ -18,13 +18,17 @@ var cle = builder.Configuration["Jwt:Key"]!;
 var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(cle));
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(o => o.TokenValidationParameters = new TokenValidationParameters
+    .AddJwtBearer(o =>
     {
-        ValidateIssuer = false,
-        ValidateAudience = false,
-        IssuerSigningKey = signingKey,
-        NameClaimType = "sub",
-        RoleClaimType = "role"
+        o.MapInboundClaims = false;
+        o.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = false,
+            ValidateAudience = false,
+            IssuerSigningKey = signingKey,
+            NameClaimType = "sub",
+            RoleClaimType = "role"
+        };
     });
 builder.Services.AddAuthorization();
 
