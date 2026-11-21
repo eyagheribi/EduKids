@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\EduKids.Contracts\EduKids.Contracts.csproj" />
+    <ProjectReference Include="..\Espaces.Api\Espaces.Api.csproj" />
   </ItemGroup>
 
 </Project>
