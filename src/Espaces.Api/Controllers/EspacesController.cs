@@ -56,6 +56,24 @@ public class EspacesController : ControllerBase
         return Ok(espaces);
     }
 
+    [HttpGet("{id:guid}")]
+    public async Task<IActionResult> Detail(Guid id)
+    {
+        var parentId = User.FindFirstValue("sub");
+        var e = await _db.Espaces.FirstOrDefaultAsync(x => x.Id == id && x.ParentId == parentId);
+        if (e is null) return NotFound();
+
+        return Ok(new
+        {
+            e.Id,
+            e.NomEnfant,
+            e.CodeAcces,
+            e.Avatar,
+            e.PersonnagePrefere,
+            Activites = e.TypesActivites.Split(',', StringSplitOptions.RemoveEmptyEntries)
+        });
+    }
+
     private async Task<string> GenererCode()
     {
         const string alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
