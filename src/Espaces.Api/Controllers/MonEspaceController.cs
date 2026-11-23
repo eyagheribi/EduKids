@@ -30,4 +30,19 @@ public class MonEspaceController : ControllerBase
             Activites = e.TypesActivites.Split(',', StringSplitOptions.RemoveEmptyEntries)
         });
     }
+
+    [HttpPut("personnage")]
+    public async Task<IActionResult> ChoisirPersonnage(PersonnageDto dto)
+    {
+        if (!Guid.TryParse(User.FindFirstValue("espaceId"), out var espaceId))
+            return Unauthorized();
+
+        var e = await _db.Espaces.FindAsync(espaceId);
+        if (e is null) return NotFound();
+
+        e.PersonnagePrefere = (dto.Personnage ?? "").Trim();
+        await _db.SaveChangesAsync();
+        return Ok(new { e.PersonnagePrefere });
+    }
 }
+public record PersonnageDto(string Personnage);

@@ -74,6 +74,42 @@ public class EspacesController : ControllerBase
         });
     }
 
+    [HttpPut("{id:guid}")]
+    public async Task<IActionResult> Modifier(Guid id, ModifierEspaceDto dto)
+    {
+        var parentId = User.FindFirstValue("sub");
+        var e = await _db.Espaces.FirstOrDefaultAsync(x => x.Id == id && x.ParentId == parentId);
+        if (e is null) return NotFound();
+
+        if (!string.IsNullOrWhiteSpace(dto.NomEnfant))
+            e.NomEnfant = dto.NomEnfant.Trim();
+
+        if (dto.Avatar is not null)
+            e.Avatar = dto.Avatar;
+
+        if (dto.Activites is not null)
+        {
+            if (dto.Activites.Count == 0 || dto.Activites.Any(a => !TypesValides.Contains(a)))
+                return BadRequest("Types valides : Dictee, Maths, Association.");
+            e.TypesActivites = string.Join(",", dto.Activites.Distinct());
+        }
+
+        await _db.SaveChangesAsync();
+        return Ok(new { e.Id, e.NomEnfant, e.Avatar, Activites = e.TypesActivites.Split(',') });
+    }
+
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Supprimer(Guid id)
+    {
+        var parentId = User.FindFirstValue("sub");
+        var e = await _db.Espaces.FirstOrDefaultAsync(x => x.Id == id && x.ParentId == parentId);
+        if (e is null) return NotFound();
+
+        _db.Espaces.Remove(e);
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
     private async Task<string> GenererCode()
     {
         const string alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -90,3 +126,4 @@ public class EspacesController : ControllerBase
 }
 
 public record CreerEspaceDto(string NomEnfant, List<string> Activites);
+public record ModifierEspaceDto(string? NomEnfant, string? Avatar, List<string>? Activites);
