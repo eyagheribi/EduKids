@@ -1,0 +1,77 @@
+<article class="card" [attr.aria-labelledby]="headingId()">
+  <header class="head">
+    <h3 class="title" [id]="headingId()" [class.is-untitled]="untitled()">{{ title() }}</h3>
+    <p class="dates">
+      <time [attr.datetime]="game().createdAt" [attr.title]="game().createdAt | ekFullDate">
+        <ek-icon name="calendar" [size]="14" /> Créé {{ created() }}
+      </time>
+      @if (modified()) {
+        <time [attr.datetime]="game().updatedAt" [attr.title]="game().updatedAt | ekFullDate">
+          <ek-icon name="pen-line" [size]="14" /> Modifié {{ updated() }}
+        </time>
+      }
+    </p>
+  </header>
+
+  <div class="preview">
+    @let s = summary();
+    @if (s && s.type === 'MATH') {
+      <p class="expr">
+        <span class="expr__text">{{ s.expression }}</span>
+        <span class="expr__eq" aria-hidden="true">= ?</span>
+      </p>
+    } @else if (s && s.type === 'MATCHING') {
+      <p class="count">
+        <ek-icon name="puzzle" [size]="16" /> {{ plural(s.count, 'paire', 'paires') }}
+      </p>
+      <ul class="pairs" aria-label="Premières paires">
+        @for (pair of s.pairs; track $index) {
+          <li class="pair">
+            <span class="pair__left">{{ pair.left }}</span>
+            <span class="pair__link" aria-hidden="true">↔</span>
+            <span class="ek-visually-hidden">associé à</span>
+            <span class="pair__right">{{ pair.right }}</span>
+          </li>
+        }
+        @if (s.hidden) {
+          <li class="pair pair--more">+{{ s.hidden }}</li>
+        }
+      </ul>
+    } @else if (s && s.type === 'SENTENCE_ORDERING') {
+      <blockquote class="sentence">«&nbsp;{{ s.sentence }}&nbsp;»</blockquote>
+      <p class="count"><ek-icon name="list-ordered" [size]="16" /> {{ plural(s.words, 'mot', 'mots') }}</p>
+    } @else {
+      <p class="unreadable"><ek-icon name="alert" [size]="16" /> Contenu illisible : ouvrez le jeu pour le corriger.</p>
+    }
+  </div>
+
+  <footer class="actions">
+    <a class="ek-btn ek-btn--soft ek-btn--sm" [routerLink]="editLink()" [attr.aria-describedby]="headingId()">
+      <ek-icon name="pencil" [size]="16" /> Modifier
+    </a>
+    <button
+      type="button"
+      class="ek-btn ek-btn--outline ek-btn--sm"
+      aria-haspopup="dialog"
+      [attr.aria-describedby]="headingId()"
+      (click)="history.emit(game())"
+    >
+      <ek-icon name="history" [size]="16" /> Historique
+    </button>
+    <button
+      type="button"
+      class="ek-btn ek-btn--danger-soft ek-btn--sm delete"
+      [attr.aria-describedby]="headingId()"
+      [disabled]="deleting()"
+      (click)="remove.emit(game())"
+    >
+      @if (deleting()) {
+        <ek-icon name="loader" [size]="16" class="spin" />
+        <span class="delete__label">Suppression…</span>
+      } @else {
+        <ek-icon name="trash" [size]="16" />
+        <span class="delete__label">Supprimer</span>
+      }
+    </button>
+  </footer>
+</article>

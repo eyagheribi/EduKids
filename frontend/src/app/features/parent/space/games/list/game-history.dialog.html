@@ -1,0 +1,57 @@
+<ek-dialog-shell title="Historique du jeu" icon="history">
+  <div class="intro">
+    <p class="game">{{ data.gameTitle }}</p>
+    @if (demo) {
+      <ek-demo-banner subject="progress" variant="badge" />
+    }
+  </div>
+
+  <div aria-live="polite">
+    @if (loading()) {
+      <ek-loader label="Chargement de l’historique…" />
+    } @else if (error()) {
+      <ek-error-state [error]="error()" title="Impossible de charger l’historique" (retry)="load()" />
+    } @else {
+      @let list = sessions() ?? [];
+      @if (!list.length) {
+        <ek-empty-state
+          icon="hourglass"
+          title="Ce jeu n’a pas encore été joué"
+          [text]="'Dès que ' + data.childName + ' aura joué à ce jeu, chaque partie apparaîtra ici avec son résultat.'"
+        />
+      } @else {
+        <p class="summary">
+          <span class="ek-chip ek-chip--sm">{{ stats().total }}</span>
+          <span class="ek-chip ek-chip--sm ek-chip--green">
+            {{ stats().success }} {{ stats().success > 1 ? 'réussies' : 'réussie' }}
+          </span>
+        </p>
+        <ol class="sessions">
+          @for (session of list; track session.sessionId) {
+            <li>
+              <a class="row" [routerLink]="sessionLink(session)" (click)="ref.close()">
+                <span [class]="'ek-chip status ' + statusStyle[session.finalStatus].chip">
+                  <ek-icon [name]="statusStyle[session.finalStatus].icon" [size]="14" />
+                  {{ statusLabels[session.finalStatus] }}
+                </span>
+                <span class="when">
+                  <time [attr.datetime]="session.completedAt" [attr.title]="session.completedAt | ekFullDate">
+                    {{ session.completedAt | ekRelativeDate }}
+                  </time>
+                  <span class="attempts">{{ attempts(session) }}</span>
+                </span>
+                <span class="score"><span class="score__label">Score</span> {{ score(session) }}</span>
+                <span class="ek-visually-hidden">— voir le détail de la session</span>
+                <ek-icon name="chevron-right" [size]="18" class="chevron" />
+              </a>
+            </li>
+          }
+        </ol>
+      }
+    }
+  </div>
+
+  <div footer>
+    <button type="button" class="ek-btn ek-btn--outline" (click)="ref.close()">Fermer</button>
+  </div>
+</ek-dialog-shell>
