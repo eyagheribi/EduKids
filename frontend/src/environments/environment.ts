@@ -11,7 +11,7 @@ import { AppConfig } from '../app/core/config/app-config';
  * Integration modes:
  * - `api`  — the gateway calls the real microservice.
  * - `demo` — a local, clearly labelled demonstration gateway is used because the service cannot yet
- *            authenticate EduKids users (see docs/INTEGRATION-REPORT.md).
+ *            authenticate EduKids users (see frontend/docs/RAPPORT-INTEGRATION.md).
  */
 export const environment: AppConfig = {
   production: false,
