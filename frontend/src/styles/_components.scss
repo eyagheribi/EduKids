@@ -1,0 +1,923 @@
+// Global, reusable component classes (the EduKids UI kit).
+// Prefer these classes in templates so every screen shares the same look.
+@use 'mixins' as m;
+
+/* ───────────────────────── Buttons ───────────────────────── */
+
+.ek-btn {
+  --btn-from: var(--ek-purple-500);
+  --btn-to: var(--ek-purple-600);
+  --btn-fg: #fff;
+  --btn-shade: var(--ek-purple-800);
+  --btn-glow: rgba(116, 68, 214, 0.35);
+  --btn-border: transparent;
+
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6em;
+  min-height: 2.9rem;
+  padding: 0.7em 1.5em;
+  border: 1.5px solid var(--btn-border);
+  border-radius: var(--ek-radius-pill);
+  background: linear-gradient(180deg, var(--btn-from), var(--btn-to));
+  color: var(--btn-fg);
+  font-family: var(--ek-font-display);
+  font-size: 1.02rem;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: 0.005em;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow:
+    0 4px 0 var(--btn-shade),
+    0 10px 22px -8px var(--btn-glow);
+  transition:
+    transform var(--ek-duration) var(--ek-ease),
+    box-shadow var(--ek-duration) var(--ek-ease),
+    filter var(--ek-duration) var(--ek-ease),
+    background var(--ek-duration) var(--ek-ease);
+  -webkit-tap-highlight-color: transparent;
+
+  &:hover:not(:disabled):not([aria-disabled='true']) {
+    filter: brightness(1.05) saturate(1.05);
+    transform: translateY(-1px);
+    color: var(--btn-fg);
+  }
+
+  &:active:not(:disabled):not([aria-disabled='true']) {
+    transform: translateY(3px);
+    box-shadow:
+      0 1px 0 var(--btn-shade),
+      0 4px 10px -6px var(--btn-glow);
+  }
+
+  &:disabled,
+  &[aria-disabled='true'] {
+    cursor: not-allowed;
+    opacity: 0.55;
+    filter: grayscale(0.15);
+  }
+
+  &:focus-visible {
+    @include m.focus-ring(4px);
+  }
+
+  ek-icon {
+    flex: none;
+  }
+}
+
+.ek-btn__arrow {
+  display: inline-grid;
+  place-items: center;
+  width: 1.9em;
+  height: 1.9em;
+  margin-right: -0.75em;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.ek-btn--success {
+  --btn-from: #3aae51;
+  --btn-to: var(--ek-green-600);
+  --btn-shade: var(--ek-green-800);
+  --btn-glow: rgba(43, 140, 63, 0.35);
+}
+
+.ek-btn--soft {
+  --btn-from: var(--ek-purple-100);
+  --btn-to: var(--ek-purple-100);
+  --btn-fg: var(--ek-purple-800);
+  --btn-shade: var(--ek-purple-200);
+  --btn-glow: transparent;
+}
+
+.ek-btn--mint {
+  --btn-from: var(--ek-green-50);
+  --btn-to: #e6f7e9;
+  --btn-fg: var(--ek-green-700);
+  --btn-shade: var(--ek-green-200);
+  --btn-border: var(--ek-green-300);
+  --btn-glow: transparent;
+}
+
+.ek-btn--outline {
+  --btn-from: #fff;
+  --btn-to: #fff;
+  --btn-fg: var(--ek-purple-800);
+  --btn-shade: var(--ek-purple-150);
+  --btn-border: var(--ek-purple-200);
+  --btn-glow: transparent;
+}
+
+.ek-btn--danger-soft {
+  --btn-from: #fff;
+  --btn-to: var(--ek-red-50);
+  --btn-fg: var(--ek-red-600);
+  --btn-shade: var(--ek-red-100);
+  --btn-border: var(--ek-red-200);
+  --btn-glow: transparent;
+}
+
+.ek-btn--danger {
+  --btn-from: #ec5a5f;
+  --btn-to: var(--ek-red-600);
+  --btn-shade: var(--ek-red-700);
+  --btn-glow: rgba(203, 47, 53, 0.3);
+}
+
+.ek-btn--warning {
+  --btn-from: #ffd35c;
+  --btn-to: var(--ek-yellow-500);
+  --btn-fg: #4a3200;
+  --btn-shade: #c98c00;
+  --btn-glow: rgba(246, 177, 15, 0.35);
+}
+
+.ek-btn--ghost {
+  --btn-from: transparent;
+  --btn-to: transparent;
+  --btn-fg: var(--ek-purple-700);
+  --btn-shade: transparent;
+  --btn-glow: transparent;
+
+  &:hover:not(:disabled) {
+    background: var(--ek-purple-50);
+  }
+}
+
+.ek-btn--sm {
+  min-height: 2.35rem;
+  padding: 0.5em 1.05em;
+  font-size: 0.92rem;
+  box-shadow:
+    0 3px 0 var(--btn-shade),
+    0 8px 16px -8px var(--btn-glow);
+}
+
+.ek-btn--lg {
+  min-height: 3.5rem;
+  padding: 0.85em 1.9em;
+  font-size: 1.2rem;
+}
+
+.ek-btn--xl {
+  min-height: 4.2rem;
+  padding: 1em 2.2em;
+  font-size: 1.45rem;
+  box-shadow:
+    0 6px 0 var(--btn-shade),
+    0 14px 26px -10px var(--btn-glow);
+}
+
+.ek-btn--block {
+  display: flex;
+  width: 100%;
+}
+
+.ek-btn--icon {
+  width: 2.9rem;
+  min-width: 2.9rem;
+  padding: 0;
+
+  &.ek-btn--sm {
+    width: 2.35rem;
+    min-width: 2.35rem;
+  }
+}
+
+/* Small flat icon button (toolbar, copy, close…) */
+.ek-icon-btn {
+  @include m.reset-button;
+  display: inline-grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--ek-radius-sm);
+  color: var(--ek-purple-700);
+  transition:
+    background var(--ek-duration) var(--ek-ease),
+    color var(--ek-duration) var(--ek-ease),
+    transform var(--ek-duration) var(--ek-ease);
+
+  &:hover {
+    background: var(--ek-purple-50);
+  }
+
+  &:active {
+    transform: scale(0.94);
+  }
+
+  &:focus-visible {
+    @include m.focus-ring(2px);
+  }
+
+  &--danger {
+    color: var(--ek-red-600);
+
+    &:hover {
+      background: var(--ek-red-50);
+    }
+  }
+}
+
+/* Text link styled as a button */
+.ek-link-btn {
+  @include m.reset-button;
+  color: var(--ek-purple-600);
+  font-weight: 800;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+
+  &:hover {
+    color: var(--ek-purple-800);
+  }
+}
+
+/* Back pill (« ← Retour ») */
+.ek-back {
+  @include m.reset-button;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 1rem;
+  border-radius: var(--ek-radius-sm);
+  background: var(--ek-purple-50);
+  color: var(--ek-purple-800);
+  font-family: var(--ek-font-display);
+  font-weight: 600;
+  font-size: 0.98rem;
+  text-decoration: none;
+  transition: background var(--ek-duration) var(--ek-ease);
+
+  &:hover {
+    background: var(--ek-purple-100);
+    color: var(--ek-purple-900);
+  }
+
+  &--sm {
+    padding: 0.35rem 0.75rem;
+    font-size: 0.85rem;
+  }
+}
+
+/* ───────────────────────── Forms ───────────────────────── */
+
+.ek-field {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.ek-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--ek-ink);
+  font-weight: 800;
+  font-size: 0.98rem;
+
+  ek-icon {
+    color: var(--ek-purple-800);
+  }
+
+  &__optional {
+    color: var(--ek-muted);
+    font-weight: 600;
+    font-size: 0.85rem;
+  }
+}
+
+.ek-input,
+.ek-select,
+.ek-textarea {
+  width: 100%;
+  min-height: 3.1rem;
+  padding: 0.75rem 1.1rem;
+  border: 1.5px solid var(--ek-border-strong);
+  border-radius: 14px;
+  background: var(--ek-surface-soft);
+  color: var(--ek-ink);
+  font-family: var(--ek-font-body);
+  font-size: 1rem;
+  font-weight: 600;
+  transition:
+    border-color var(--ek-duration) var(--ek-ease),
+    box-shadow var(--ek-duration) var(--ek-ease),
+    background var(--ek-duration) var(--ek-ease);
+
+  &::placeholder {
+    color: #a29cbd;
+    font-weight: 500;
+  }
+
+  &:hover:not(:disabled) {
+    border-color: var(--ek-purple-300);
+  }
+
+  &:focus,
+  &:focus-visible {
+    outline: none;
+    border-color: var(--ek-purple-400);
+    background: #fff;
+    box-shadow: var(--ek-ring);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  &.ng-invalid.ng-touched,
+  &[aria-invalid='true'] {
+    border-color: var(--ek-red-500);
+
+    &:focus {
+      box-shadow: 0 0 0 4px rgba(229, 72, 77, 0.15);
+    }
+  }
+}
+
+.ek-textarea {
+  min-height: 6rem;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.ek-select {
+  appearance: none;
+  padding-right: 2.6rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%235e31b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.9rem center;
+  cursor: pointer;
+}
+
+.ek-input-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+
+  .ek-input {
+    padding-right: 3.2rem;
+  }
+
+  &__action {
+    position: absolute;
+    right: 0.45rem;
+  }
+}
+
+.ek-field__error {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  color: var(--ek-red-600);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.ek-field__hint {
+  color: var(--ek-text-soft);
+  font-size: 0.86rem;
+}
+
+/* Selectable tile (checkbox/radio card) */
+.ek-choice {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 0.4rem;
+  padding: 1rem 0.75rem 0.85rem;
+  border: 1.5px solid var(--ek-border);
+  border-radius: var(--ek-radius);
+  background: #fff;
+  color: var(--ek-ink);
+  font-weight: 800;
+  text-align: center;
+  cursor: pointer;
+  box-shadow: var(--ek-shadow-xs);
+  transition:
+    border-color var(--ek-duration) var(--ek-ease),
+    background var(--ek-duration) var(--ek-ease),
+    transform var(--ek-duration) var(--ek-ease),
+    box-shadow var(--ek-duration) var(--ek-ease);
+
+  input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--ek-shadow-sm);
+    border-color: var(--ek-purple-200);
+  }
+
+  &:has(input:focus-visible) {
+    @include m.focus-ring(2px);
+  }
+
+  &.is-selected,
+  &:has(input:checked) {
+    border-color: var(--ek-green-400);
+    background: var(--ek-green-50);
+    box-shadow: 0 0 0 3px rgba(85, 192, 106, 0.18);
+  }
+
+  &.is-disabled,
+  &:has(input:disabled) {
+    cursor: not-allowed;
+    opacity: 0.6;
+    transform: none;
+  }
+
+  &__check {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    display: grid;
+    place-items: center;
+    width: 1.35rem;
+    height: 1.35rem;
+    border: 2px solid var(--ek-border-strong);
+    border-radius: 6px;
+    background: #fff;
+    color: #fff;
+  }
+
+  &.is-selected &__check,
+  &:has(input:checked) &__check {
+    border-color: var(--ek-green-500);
+    background: var(--ek-green-500);
+  }
+}
+
+/* ───────────────────────── Surfaces ───────────────────────── */
+
+.ek-card {
+  @include m.card;
+
+  &--flat {
+    box-shadow: none;
+  }
+
+  &--lg {
+    padding: clamp(1.25rem, 2.5vw, 2.25rem);
+    border-radius: var(--ek-radius-xl);
+    box-shadow: var(--ek-shadow);
+  }
+
+  &--soft {
+    background: var(--ek-bg-lavender);
+    border-color: transparent;
+    box-shadow: none;
+  }
+}
+
+.ek-card__title {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  font-family: var(--ek-font-display);
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--ek-ink);
+
+  ek-icon {
+    color: var(--ek-purple-700);
+  }
+}
+
+.ek-card__subtitle {
+  margin-top: 0.25rem;
+  color: var(--ek-text-soft);
+  font-weight: 600;
+}
+
+.ek-divider {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  color: var(--ek-text-soft);
+  font-weight: 600;
+  font-size: 0.95rem;
+  text-align: center;
+
+  &::before,
+  &::after {
+    content: '';
+    flex: 1;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--ek-border);
+  }
+}
+
+/* ───────────────────────── Chips & badges ───────────────────────── */
+
+.ek-chip {
+  --chip-bg: var(--ek-purple-50);
+  --chip-fg: var(--ek-purple-800);
+  --chip-border: var(--ek-purple-150);
+
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.28rem 0.75rem;
+  border: 1.5px solid var(--chip-border);
+  border-radius: var(--ek-radius-pill);
+  background: var(--chip-bg);
+  color: var(--chip-fg);
+  font-size: 0.85rem;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
+
+  &--green {
+    --chip-bg: var(--ek-green-50);
+    --chip-fg: var(--ek-green-700);
+    --chip-border: var(--ek-green-200);
+  }
+
+  &--yellow {
+    --chip-bg: var(--ek-yellow-50);
+    --chip-fg: var(--ek-yellow-700);
+    --chip-border: var(--ek-yellow-200);
+  }
+
+  &--blue {
+    --chip-bg: var(--ek-blue-50);
+    --chip-fg: var(--ek-blue-700);
+    --chip-border: var(--ek-blue-200);
+  }
+
+  &--orange {
+    --chip-bg: var(--ek-orange-50);
+    --chip-fg: var(--ek-orange-700);
+    --chip-border: var(--ek-orange-100);
+  }
+
+  &--red {
+    --chip-bg: var(--ek-red-50);
+    --chip-fg: var(--ek-red-600);
+    --chip-border: var(--ek-red-100);
+  }
+
+  &--gray {
+    --chip-bg: #f4f3f8;
+    --chip-fg: var(--ek-text-soft);
+    --chip-border: #e6e3ef;
+  }
+
+  &--sm {
+    padding: 0.15rem 0.55rem;
+    font-size: 0.75rem;
+  }
+}
+
+/* Eyebrow pill (« Espace Parent ») */
+.ek-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.7rem;
+  border-radius: 8px;
+  background: var(--ek-purple-100);
+  color: var(--ek-purple-800);
+  font-family: var(--ek-font-display);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+/* ───────────────────────── Alerts ───────────────────────── */
+
+.ek-alert {
+  --alert-bg: var(--ek-purple-50);
+  --alert-fg: var(--ek-purple-900);
+  --alert-border: var(--ek-purple-150);
+  --alert-icon: var(--ek-purple-600);
+
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.9rem 1.1rem;
+  border: 1.5px solid var(--alert-border);
+  border-radius: var(--ek-radius);
+  background: var(--alert-bg);
+  color: var(--alert-fg);
+  font-weight: 600;
+  font-size: 0.95rem;
+
+  > ek-icon {
+    color: var(--alert-icon);
+    margin-top: 0.1rem;
+  }
+
+  strong {
+    font-weight: 800;
+  }
+
+  &--error {
+    --alert-bg: var(--ek-red-50);
+    --alert-fg: #6b1519;
+    --alert-border: var(--ek-red-100);
+    --alert-icon: var(--ek-red-500);
+  }
+
+  &--success {
+    --alert-bg: var(--ek-green-50);
+    --alert-fg: #124019;
+    --alert-border: var(--ek-green-200);
+    --alert-icon: var(--ek-green-600);
+  }
+
+  &--warning {
+    --alert-bg: var(--ek-yellow-50);
+    --alert-fg: #4d3500;
+    --alert-border: var(--ek-yellow-200);
+    --alert-icon: var(--ek-yellow-500);
+  }
+
+  &--info {
+    --alert-bg: var(--ek-blue-50);
+    --alert-fg: #0f3264;
+    --alert-border: var(--ek-blue-100);
+    --alert-icon: var(--ek-blue-500);
+  }
+}
+
+/* ───────────────────────── Navigation ───────────────────────── */
+
+.ek-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  li + li::before {
+    content: '';
+    width: 0.45rem;
+    height: 0.45rem;
+    margin: 0 0.3rem 0 0.1rem;
+    border-top: 2px solid var(--ek-purple-800);
+    border-right: 2px solid var(--ek-purple-800);
+    transform: rotate(45deg);
+  }
+
+  a,
+  span {
+    padding: 0.3rem 0.75rem;
+    border-radius: 10px;
+    background: var(--ek-purple-100);
+    color: var(--ek-purple-800);
+    font-family: var(--ek-font-display);
+    font-weight: 600;
+    font-size: 0.9rem;
+    text-decoration: none;
+  }
+
+  a:hover {
+    background: var(--ek-purple-150);
+  }
+}
+
+/* Large segmented tabs (« Gestion des jeux | Résultats et progrès ») */
+.ek-tabs {
+  display: grid;
+  grid-auto-columns: 1fr;
+  grid-auto-flow: column;
+  gap: 0.35rem;
+  padding: 0.35rem;
+  border: 1px solid var(--ek-border);
+  border-radius: var(--ek-radius-lg);
+  background: #fff;
+  box-shadow: var(--ek-shadow-sm);
+}
+
+.ek-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  min-height: 3.6rem;
+  padding: 0.6rem 1rem;
+  border-radius: 18px;
+  color: var(--ek-ink);
+  font-family: var(--ek-font-display);
+  font-size: 1.15rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    background var(--ek-duration) var(--ek-ease),
+    color var(--ek-duration) var(--ek-ease);
+
+  ek-icon {
+    color: var(--ek-purple-700);
+  }
+
+  &:hover {
+    background: var(--ek-purple-50);
+    color: var(--ek-ink);
+  }
+
+  &.is-active {
+    background: linear-gradient(180deg, var(--ek-purple-500), var(--ek-purple-600));
+    color: #fff;
+    box-shadow: 0 6px 16px -6px rgba(116, 68, 214, 0.55);
+
+    ek-icon {
+      color: #fff;
+    }
+  }
+
+  @include m.down(sm) {
+    font-size: 0.98rem;
+    min-height: 3rem;
+    gap: 0.45rem;
+  }
+}
+
+/* ───────────────────────── Data display ───────────────────────── */
+
+.ek-table-wrap {
+  overflow-x: auto;
+  border-radius: var(--ek-radius);
+}
+
+.ek-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.95rem;
+
+  th {
+    padding: 0.7rem 1rem;
+    background: var(--ek-purple-50);
+    color: var(--ek-ink);
+    font-family: var(--ek-font-display);
+    font-weight: 600;
+    text-align: left;
+    white-space: nowrap;
+
+    &:first-child {
+      border-radius: 12px 0 0 12px;
+    }
+
+    &:last-child {
+      border-radius: 0 12px 12px 0;
+    }
+  }
+
+  td {
+    padding: 0.8rem 1rem;
+    border-bottom: 1px solid var(--ek-border);
+    color: var(--ek-ink);
+    font-weight: 700;
+    vertical-align: middle;
+  }
+
+  tbody tr {
+    transition: background var(--ek-duration) var(--ek-ease);
+  }
+
+  tbody tr.is-clickable {
+    cursor: pointer;
+
+    &:hover {
+      background: var(--ek-surface-soft);
+    }
+  }
+
+  tbody tr:last-child td {
+    border-bottom: 0;
+  }
+}
+
+.ek-progress {
+  --progress-from: var(--ek-green-400);
+  --progress-to: var(--ek-green-600);
+
+  position: relative;
+  height: 0.85rem;
+  overflow: hidden;
+  border-radius: var(--ek-radius-pill);
+  background: #eeebf5;
+
+  &__bar {
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--progress-from), var(--progress-to));
+    transition: width 600ms var(--ek-ease);
+  }
+
+  &--purple {
+    --progress-from: var(--ek-purple-400);
+    --progress-to: var(--ek-purple-600);
+  }
+
+  &--blue {
+    --progress-from: #5aaaf8;
+    --progress-to: var(--ek-blue-500);
+  }
+
+  &--yellow {
+    --progress-from: var(--ek-yellow-400);
+    --progress-to: var(--ek-yellow-500);
+  }
+}
+
+.ek-skeleton {
+  display: block;
+  min-height: 1rem;
+  border-radius: var(--ek-radius-sm);
+  background: linear-gradient(90deg, #f0ecf9 25%, #f8f5fe 50%, #f0ecf9 75%);
+  background-size: 200% 100%;
+  animation: ek-shimmer 1.4s ease-in-out infinite;
+}
+
+.ek-kbd {
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--ek-border-strong);
+  border-bottom-width: 3px;
+  border-radius: 6px;
+  background: #fff;
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 0.85em;
+}
+
+.ek-code {
+  font-family: var(--ek-font-display);
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  color: var(--ek-ink);
+}
+
+/* ───────────────────────── Layout helpers ───────────────────────── */
+
+.ek-stack {
+  display: grid;
+  gap: var(--stack-gap, 1rem);
+}
+
+.ek-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--row-gap, 0.75rem);
+}
+
+.ek-spacer {
+  flex: 1;
+}
+
+.ek-muted {
+  color: var(--ek-text-soft);
+}
+
+.ek-visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.ek-page {
+  display: grid;
+  gap: 1.5rem;
+  animation: ek-fade-up 320ms var(--ek-ease) both;
+}
+
+/* ───────────────────────── CDK dialog skin ───────────────────────── */
+
+.ek-dialog-backdrop {
+  background: rgba(42, 15, 85, 0.35);
+  backdrop-filter: blur(3px);
+}
+
+.ek-dialog-panel {
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+
+  .cdk-dialog-container {
+    outline: none;
+  }
+}
