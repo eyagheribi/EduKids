@@ -1,5 +1,5 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
-import { Observable, tap } from 'rxjs';
+import { Observable, of, tap } from 'rxjs';
 import { ApiError, toApiError } from '../../core/api/api-error';
 import { EspacesApiService } from '../../core/api/espaces-api.service';
 import { SessionService } from '../../core/auth/session.service';
@@ -7,7 +7,7 @@ import { APP_CONFIG } from '../../core/config/app-config';
 import { categoriesForSpace } from '../../core/models/categories';
 import { ChildOwnSpace, parseActivites, PersonnageResponse } from '../../core/models/espaces.models';
 import { DemoDataService } from '../../core/demo/demo-data.service';
-import { of } from 'rxjs';
+import { ChildDashboardDemoService } from './home/child-dashboard-demo.service';
 
 /**
  * State of the signed-in child (GET /mon-espace). Provided by ChildShellComponent; every child
@@ -18,6 +18,7 @@ import { of } from 'rxjs';
 export class ChildContext {
   private readonly api = inject(EspacesApiService);
   private readonly demoData = inject(DemoDataService);
+  private readonly dashboardDemo = inject(ChildDashboardDemoService);
   private readonly session = inject(SessionService);
   readonly gamesMode = inject(APP_CONFIG).integrations.games;
   readonly demoMode = computed(() => this.spaceId() === 'space-demo');
@@ -40,9 +41,16 @@ export class ChildContext {
   load(force = false): void {
     if (this.spaceState() && !force) return;
     if (this.demoMode()) {
-      this.spaceState.set({ spaceId: 'space-demo', nomEnfant: 'Adam', avatar: '', personnagePrefere: 'hibou', activites: ['Maths', 'Association', 'Dictee'] });
+      const spaceId = this.spaceId();
+      this.spaceState.set({
+        spaceId,
+        nomEnfant: this.session.child()?.nomEnfant ?? '',
+        avatar: '',
+        personnagePrefere: this.dashboardDemo.characterFor(spaceId),
+        activites: ['Maths', 'Association', 'Dictee'],
+      });
       this.loadingState.set(false);
-      if (!this.demoData.count('space-demo').games) this.demoData.seed('space-demo', ['Maths', 'Association', 'Dictee']);
+      if (!this.demoData.count(spaceId).games) this.demoData.seed(spaceId, ['Maths', 'Association', 'Dictee']);
       return;
     }
     this.loadingState.set(true);
@@ -69,6 +77,7 @@ export class ChildContext {
   /** PUT /mon-espace/personnage. */
   chooseCharacter(key: string): Observable<PersonnageResponse> {
     if (this.demoMode()) {
+      this.dashboardDemo.saveCharacter(this.spaceId(), key);
       this.spaceState.update((s) => s ? { ...s, personnagePrefere: key } : s);
       return of({ personnagePrefere: key });
     }

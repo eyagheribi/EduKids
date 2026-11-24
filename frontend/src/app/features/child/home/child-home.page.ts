@@ -1,26 +1,123 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import { DatePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
-import { ChildContext } from '../child-context';
+import { GamesGateway } from '../../../core/gateways/games.gateway';
+import { ProgressGateway } from '../../../core/gateways/progress.gateway';
+import { CATEGORIES, CategoryDef, CategoryId, categoryForGameType } from '../../../core/models/categories';
+import { GameType } from '../../../core/models/activites.models';
+import { EspacesActivite } from '../../../core/models/espaces.models';
+import { SessionSummaryDto } from '../../../core/models/suivi.models';
+import { ApiError, toApiError } from '../../../core/api/api-error';
+import { OwlComponent } from '../../../shared/ui/brand/owl.component';
+import { CategoryIconComponent } from '../../../shared/ui/category-icon/category-icon.component';
+import { CharacterComponent } from '../../../shared/ui/character/character.component';
 import { IconComponent } from '../../../shared/ui/icon/icon.component';
-import { IconName } from '../../../shared/ui/icon/icon.data';
+import { IllustrationComponent } from '../../../shared/ui/illustration/illustration.component';
+import { ChildContext } from '../child-context';
+import { ChildBadgesComponent } from './child-badges.component';
+import { ChildDashboardDemoService } from './child-dashboard-demo.service';
+import { ChildStarGoalComponent } from './child-star-goal.component';
 
+const CATEGORY_KEYS: Readonly<Record<CategoryId, EspacesActivite | null>> = {
+  maths: 'Maths',
+  association: 'Association',
+  ordonnancement: 'Ordonnancement',
+  dictee: 'Dictee',
+};
+
+/** Child dashboard, personalized from the authenticated child space and existing progress gateway. */
 @Component({
-  selector: 'ek-child-home-page', imports: [RouterLink, IconComponent], changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `
-    <section class="welcome"><span class="sun">☀</span><p>Salut {{ ctx.firstName() }} !</p><h1>On joue et on apprend ?</h1><span>Choisis une activité pour commencer.</span></section>
-    @if (ctx.error()) { <div class="message"><strong>Impossible de charger ton espace</strong><p>Réessaie dans un instant. Si le problème continue, demande de l’aide à ton parent.</p><button type="button" (click)="ctx.load(true)">Réessayer</button></div> }
-    @if (ctx.loading()) { <p class="message">Préparation de tes activités…</p> }
-    <div class="grid">@for (item of ctx.categories(); track item.category.id) {
-      <a class="card" [routerLink]="['/enfant/categories', item.category.id]" [class]="'card tone-' + item.category.tone">
-        <span class="icon"><ek-icon [name]="icons[item.category.id]" [size]="30"/></span><strong>{{ item.category.childLabel }}</strong><span>{{ item.category.childDescription }}</span>
-        @if (item.availability !== 'active') { <small>Activité de démonstration</small> }
-      </a>
-    }</div>
-    @if (!ctx.loading() && !ctx.error() && !ctx.categories().length) { <div class="message">Ton parent n’a pas encore activé d’activité. Demande-lui d’en choisir une.</div> }
-  `,
-  styles: `:host{display:block}.welcome{text-align:center;padding:2rem 1rem 2.5rem;color:#665e76}.sun{font-size:2.6rem;color:#f3bd42}.welcome p{margin:.4rem 0;color:#7864a8;font-weight:800}.welcome h1{font-size:clamp(2rem,5vw,3.3rem);color:#322942;margin:.3rem 0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:1.25rem}.card{display:flex;min-height:205px;flex-direction:column;align-items:center;justify-content:center;gap:.7rem;text-align:center;text-decoration:none;color:#383147;background:#fff;border-radius:1.6rem;padding:1.4rem;box-shadow:0 10px 30px #30214512;transition:transform .2s}.card:hover{transform:translateY(-5px) rotate(-.5deg)}.icon{height:4.2rem;width:4.2rem;border-radius:1.3rem;display:grid;place-items:center;background:#e8f6e8;color:#38864d}.tone-purple .icon{background:#f1e9ff;color:#8155bd}.tone-blue .icon{background:#e8f2fe;color:#477dbd}.tone-yellow .icon{background:#fff3d2;color:#a17b21}.card strong{font-size:1.4rem;font-family:var(--ek-font-display)}.card>span:last-of-type{color:#777183}.card small{color:#8261b6;background:#f6f1fc;padding:.3rem .6rem;border-radius:1rem}.message{max-width:650px;margin:1rem auto;padding:1rem 1.25rem;border-radius:1rem;background:white;color:#726b7c}.message strong{color:#3c344a}.message button{border:0;border-radius:2rem;padding:.6rem 1rem;background:#7956b5;color:white;font-weight:700}`,
+  selector: 'ek-child-home-page',
+  imports: [
+    DatePipe,
+    RouterLink,
+    OwlComponent,
+    CategoryIconComponent,
+    CharacterComponent,
+    IconComponent,
+    IllustrationComponent,
+    ChildBadgesComponent,
+    ChildStarGoalComponent,
+  ],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  templateUrl: './child-home.page.html',
+  styleUrl: './child-home.page.scss',
 })
 export class ChildHomePage {
   protected readonly ctx = inject(ChildContext);
-  protected readonly icons: Record<string, IconName> = { maths:'calculator', association:'puzzle', ordonnancement:'list-ordered', dictee:'volume' };
+  private readonly games = inject(GamesGateway);
+  private readonly progress = inject(ProgressGateway);
+  private readonly dashboardDemo = inject(ChildDashboardDemoService);
+
+  protected readonly recentGames = signal<readonly SessionSummaryDto[]>([]);
+  protected readonly recentLoading = signal(true);
+  protected readonly recentError = signal<ApiError | null>(null);
+  protected readonly demoProgress = this.progress.mode === 'demo';
+
+  protected readonly categories = computed<readonly CategoryDef[]>(() => {
+    const activites = this.ctx.space()?.activites;
+    if (!activites) return [];
+    return CATEGORIES.filter((category) => {
+      const key = CATEGORY_KEYS[category.id];
+      return key !== null && activites.includes(key);
+    });
+  });
+
+  protected readonly goal = computed(() => {
+    const spaceId = this.ctx.spaceId();
+    return spaceId ? this.dashboardDemo.rewardGoalFor(spaceId) : null;
+  });
+  protected readonly badges = computed(() => {
+    const spaceId = this.ctx.spaceId();
+    return spaceId ? this.dashboardDemo.badgesFor(spaceId) : [];
+  });
+  protected readonly resumableGame = computed(() =>
+    this.dashboardDemo.resumableGameFor(this.ctx.spaceId()),
+  );
+  protected readonly canDiscoverResumableGame = this.games.mode === 'demo';
+
+  constructor() {
+    effect(() => {
+      const spaceId = this.ctx.spaceId();
+      if (spaceId) untracked(() => this.loadRecentGames(spaceId));
+    });
+  }
+
+  protected loadRecentGames(spaceId = this.ctx.spaceId()): void {
+    if (!spaceId) {
+      this.recentLoading.set(false);
+      return;
+    }
+    this.recentLoading.set(true);
+    this.recentError.set(null);
+    this.progress.history(spaceId, { sortOrder: 'desc', page: 1, pageSize: 3 }).subscribe({
+      next: (result) => {
+        this.recentGames.set(result.items);
+        this.recentLoading.set(false);
+      },
+      error: (error: unknown) => {
+        this.recentError.set(toApiError(error, 'suivi'));
+        this.recentLoading.set(false);
+      },
+    });
+  }
+
+  protected categoryId(type: GameType): CategoryId {
+    return categoryForGameType(type)?.id ?? 'maths';
+  }
+
+  protected categoryLabel(type: GameType): string {
+    return categoryForGameType(type)?.label ?? 'Jeu éducatif';
+  }
+
+  protected resultLabel(session: SessionSummaryDto): string {
+    if (session.finalStatus === 'SUCCESS') return 'Jeu réussi';
+    if (session.finalStatus === 'FAILED') return 'À réessayer';
+    return 'Jeu à terminer';
+  }
+
+  protected scoreLabel(session: SessionSummaryDto): string | null {
+    if (session.finalMaxScore === null || session.finalMaxScore <= 0) return null;
+    return `${session.finalScore} / ${session.finalMaxScore}`;
+  }
 }
