@@ -41,6 +41,17 @@ import {
   type MatchingState,
 } from './matching/matching-state';
 import {
+  EMPTY_SENTENCE,
+  bankTokens as sentenceBankTokenIds,
+  isSentenceComplete,
+  placeToken,
+  resetSentence,
+  returnToken,
+  shiftToken,
+  toSentenceAnswer,
+  type SentenceState,
+} from './sentence/sentence-state';
+import {
   AttemptFeedback,
   attemptsLeft,
   endScreenForSession,
@@ -103,18 +114,25 @@ export class GamePlayerPage {
   protected readonly mathAnswer = signal('');
   protected readonly textAnswer = signal('');
   protected readonly matchingState = signal<MatchingState>(EMPTY_MATCHING);
-  protected readonly orderedIds = signal<readonly string[]>([]);
+  protected readonly sentenceState = signal<SentenceState>(EMPTY_SENTENCE);
 
   protected readonly playable = computed(() => toPlayable(this.session()?.game));
   protected readonly orderedTokens = computed(() => {
     const game = this.playable();
     if (game?.type !== 'SENTENCE_ORDERING') return [];
     const byId = new Map(game.tokens.map((token) => [token.id, token]));
-    return this.orderedIds()
+    return this.sentenceState().placed
       .map((id) => byId.get(id))
       .filter((token): token is NonNullable<typeof token> => !!token);
   });
-  protected readonly orderedSentence = computed(() => this.orderedTokens().map((token) => token.label).join(' '));
+  protected readonly bankTokens = computed(() => {
+    const game = this.playable();
+    if (game?.type !== 'SENTENCE_ORDERING') return [];
+    const byId = new Map(game.tokens.map((token) => [token.id, token]));
+    return sentenceBankTokenIds(this.sentenceState(), game.tokens.map((token) => token.id))
+      .map((id) => byId.get(id))
+      .filter((token): token is NonNullable<typeof token> => !!token);
+  });
   protected readonly titleFromRoute = signal(
     typeof this.navigationState?.gameTitle === 'string' ? this.navigationState.gameTitle.trim() : '',
   );
@@ -235,20 +253,20 @@ export class GamePlayerPage {
     this.setAnswer(null);
   }
 
-  protected moveToken(id: string): void {
-    this.orderedIds.update((ids) => {
-      const index = ids.indexOf(id);
-      return index < 0 ? ids : [...ids.slice(index + 1), ...ids.slice(0, index + 1)];
-    });
-    const game = this.playable();
-    if (game?.type === 'SENTENCE_ORDERING') this.setAnswer({ tokens: [...this.orderedIds()] });
+  protected placeSentenceToken(id: string): void {
+    this.updateSentenceState(placeToken(this.sentenceState(), id));
+  }
+
+  protected returnSentenceToken(id: string): void {
+    this.updateSentenceState(returnToken(this.sentenceState(), id));
+  }
+
+  protected moveSentenceToken(id: string, step: -1 | 1): void {
+    this.updateSentenceState(shiftToken(this.sentenceState(), id, step));
   }
 
   protected resetOrder(): void {
-    const game = this.playable();
-    if (game?.type !== 'SENTENCE_ORDERING') return;
-    this.orderedIds.set(game.tokens.map((token) => token.id));
-    this.setAnswer({ tokens: [...this.orderedIds()] });
+    this.updateSentenceState(resetSentence());
   }
 
   protected retryStart(): void {
@@ -341,7 +359,7 @@ export class GamePlayerPage {
     this.mathAnswer.set('');
     this.textAnswer.set('');
     this.matchingState.set(EMPTY_MATCHING);
-    this.orderedIds.set([]);
+    this.sentenceState.set(EMPTY_SENTENCE);
     this.feedback.set(null);
     this.pendingAttempt = null;
     this.retryPending.set(false);
@@ -360,11 +378,6 @@ export class GamePlayerPage {
             if (!game) {
               this.screen.set({ kind: 'error', error: 'Le contenu de ce jeu ne peut pas être affiché.' });
               return;
-            }
-            if (game.type === 'SENTENCE_ORDERING') {
-              const ids = game.tokens.map((token) => token.id);
-              this.orderedIds.set(ids);
-              this.setAnswer({ tokens: ids });
             }
             this.screen.set({ kind: 'playing' });
             return;
@@ -503,6 +516,17 @@ export class GamePlayerPage {
     const ended = endScreenForSession(session);
     if (ended) this.screen.set(ended);
     else if (session.status === 'ACTIVE' && session.game) this.screen.set({ kind: 'playing' });
+  }
+
+  private updateSentenceState(state: SentenceState): void {
+    this.sentenceState.set(state);
+    const game = this.playable();
+    this.setAnswer(
+      game?.type === 'SENTENCE_ORDERING' &&
+        isSentenceComplete(state, game.tokens.map((token) => token.id))
+        ? toSentenceAnswer(state)
+        : null,
+    );
   }
 
   private formatCorrection(correction: Correction | null): string {

@@ -244,22 +244,61 @@
           </section>
         } @else if (game.type === 'SENTENCE_ORDERING') {
           <section class="engine engine--ordering" aria-label="Jeu d’ordonnancement de mots">
-            <p class="engine-instruction">Touche les mots pour les faire avancer dans la phrase.</p>
-            <div class="word-bank" aria-label="Mots mélangés">
-              @for (token of orderedTokens(); track token.id) {
-                <button
-                  type="button"
-                  class="word-token"
-                  [disabled]="busy() || retryPending()"
-                  (click)="moveToken(token.id)"
-                >
-                  {{ token.label }}
-                </button>
-              }
-            </div>
-            <p class="sentence-preview" aria-live="polite">
-              {{ orderedSentence() || 'Ta phrase apparaîtra ici.' }}
+            <p class="engine-instruction">Choisis les mots dans l’ordre, puis ajuste ta phrase si besoin.</p>
+            <p class="sentence-progress" aria-live="polite">
+              {{ orderedTokens().length }} / {{ game.tokens.length }} mots placés
             </p>
+            <section class="sentence-line" aria-label="Ta phrase">
+              @if (orderedTokens().length === 0) {
+                <p class="sentence-placeholder">Touche un mot ci-dessous pour commencer.</p>
+              }
+              @for (token of orderedTokens(); track token.id; let index = $index) {
+                <div class="placed-token">
+                  <button
+                    type="button"
+                    class="placed-token__word"
+                    [disabled]="busy() || retryPending()"
+                    [attr.aria-label]="'Remettre « ' + token.label + ' » dans les mots disponibles'"
+                    (click)="returnSentenceToken(token.id)"
+                  >
+                    {{ token.label }}
+                  </button>
+                  <span class="placed-token__controls">
+                    <button
+                      type="button"
+                      [disabled]="busy() || retryPending() || index === 0"
+                      [attr.aria-label]="'Déplacer « ' + token.label + ' » plus tôt'"
+                      (click)="moveSentenceToken(token.id, -1)"
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      [disabled]="busy() || retryPending() || index === orderedTokens().length - 1"
+                      [attr.aria-label]="'Déplacer « ' + token.label + ' » plus tard'"
+                      (click)="moveSentenceToken(token.id, 1)"
+                    >
+                      ↓
+                    </button>
+                  </span>
+                </div>
+              }
+            </section>
+            <section class="sentence-bank" aria-label="Mots disponibles">
+              <h3>Mots disponibles</h3>
+              <div class="word-bank">
+                @for (token of bankTokens(); track token.id) {
+                  <button
+                    type="button"
+                    class="word-token"
+                    [disabled]="busy() || retryPending()"
+                    (click)="placeSentenceToken(token.id)"
+                  >
+                    {{ token.label }}
+                  </button>
+                }
+              </div>
+            </section>
             <button type="button" class="text-button" [disabled]="busy() || retryPending()" (click)="resetOrder()">
               Recommencer
             </button>
