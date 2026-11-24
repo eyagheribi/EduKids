@@ -1,46 +1,523 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { DatePipe, Location } from '@angular/common';
+import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ApiError, errorMessage, toApiError } from '../../../core/api/api-error';
 import { GamesGateway } from '../../../core/gateways/games.gateway';
-import { GameAnswer, Playable, SessionDto, toPlayable } from '../../../core/models/activites.models';
-import { uuid } from '../../../shared/utils/ids';
-import { IconComponent } from '../../../shared/ui/icon/icon.component';
+import {
+  AttemptDto,
+  Correction,
+  GameAnswer,
+  GameType,
+  Playable,
+  SessionDto,
+  toPlayable,
+} from '../../../core/models/activites.models';
+import { CategoryId, GAME_TYPE_LABELS } from '../../../core/models/categories';
+import { ChildDashboardDemoService } from '../home/child-dashboard-demo.service';
 import { ChildContext } from '../child-context';
-import { outcomeOfAttempt, PlayScreen } from './play-model';
+import { CategoryIconComponent } from '../../../shared/ui/category-icon/category-icon.component';
+import { CharacterComponent } from '../../../shared/ui/character/character.component';
+import { IconComponent } from '../../../shared/ui/icon/icon.component';
+import { IllustrationComponent } from '../../../shared/ui/illustration/illustration.component';
+import { LogoComponent } from '../../../shared/ui/brand/logo.component';
+import { InactivityCountdownComponent } from './ui/inactivity-countdown.component';
+import { PlayEndComponent } from './ui/play-end.component';
+import {
+  applyKeypadKey,
+  normalizeMathInput,
+  toMathAnswer,
+  type KeypadKey,
+} from './math/math-answer';
+import {
+  AttemptFeedback,
+  attemptsLeft,
+  endScreenForSession,
+  outcomeOfAttempt,
+  PlayScreen,
+  submitErrorAction,
+  unavailableUntil,
+} from './play-model';
+import { uuid } from '../../../shared/utils/ids';
 
-@Component({selector:'ek-game-player-page',imports:[FormsModule,RouterLink,IconComponent],changeDetection:ChangeDetectionStrategy.OnPush,
-template:`
-  <a class="back" routerLink="/enfant">‹ Mes activités</a>
-  @if(loading()){<div class="panel"><h1>Préparation du jeu…</h1></div>}
-  @if(error()){<div class="panel"><h1>Oups !</h1><p>{{error()}}</p><a routerLink="/enfant">Retour aux activités</a></div>}
-  @if(playable();as game){@if(screen()==='playing'){
-    <main class="panel"><p class="eyebrow">À TOI DE JOUER</p><h1>{{prompt()}}</h1>
-      @if(game.type==='MATH'){<p class="expression">{{game.expression}} = ?</p><label class="answer">Ta réponse<input type="number" [(ngModel)]="mathAnswer" name="mathAnswer" inputmode="decimal" autofocus></label>}
-      @if(game.type==='DICTATION'){<button type="button" class="speak" (click)="speak(game.sentence)"><ek-icon name="volume" [size]="18"/> Écouter la phrase</button><label class="answer">Écris ce que tu entends<textarea [(ngModel)]="textAnswer" name="dictation" rows="3"></textarea></label>}
-      @if(game.type==='SENTENCE_ORDERING'){<p class="hint">Remets les mots dans l’ordre en les touchant.</p><div class="tokens">@for(token of orderedTokens();track token.id){<button type="button" (click)="moveToken(token.id)">{{token.label}}</button>}</div>}
-      @if(game.type==='MATCHING'){<p class="hint">Choisis le partenaire de chaque mot.</p>@for(item of game.left;track item.id){<label class="match">{{item.label}}<select [(ngModel)]="matches[item.id]" [name]="item.id"><option value="">Choisir…</option>@for(right of game.right;track right.id){<option [value]="right.id">{{right.label}}</option>}</select></label>}}
-      @if(feedback()){<p class="feedback">{{feedback()}}</p>}<button class="submit" [disabled]="submitting()" (click)="submit(game)">{{submitting()?'Vérification…':'Vérifier ma réponse'}}</button>
-    </main>
-  }@else if(screen()==='success'||screen()==='failed'||screen()==='unfinished'){
-    <main class="panel end"><span class="emoji">{{screen()==='success'?'⭐':'💪'}}</span><h1>{{screen()==='success'?'Bravo !':'Bien joué !'}}</h1><p>{{screen()==='success'?'Tu as réussi ce jeu.':'Tu as fait de ton mieux. Tu pourras réessayer plus tard.'}}</p>@if(correction()){<div class="correction">{{correction()}}</div>}<a class="submit" routerLink="/enfant">Retour aux activités</a></main>
-  }}
-`,styles:`:host{display:block;max-width:760px;margin:auto}.back{display:inline-block;color:#755da4;font-weight:800;text-decoration:none;margin:.5rem 0}.panel{margin:1rem auto;background:#fff;border-radius:1.6rem;padding:clamp(1.3rem,5vw,3rem);text-align:center;box-shadow:0 12px 35px #30214514}.eyebrow{font-weight:800;color:#8262b5;letter-spacing:.1em}.panel h1{color:#342b43;font-size:clamp(1.8rem,5vw,2.7rem)}.expression{font-size:clamp(2rem,8vw,4rem);font-weight:900;color:#6f50a4;margin:2rem}.answer{display:block;text-align:left;max-width:460px;margin:1.3rem auto;color:#514960;font-weight:800}.answer input,.answer textarea,.match select{display:block;width:100%;box-sizing:border-box;margin-top:.5rem;padding:.85rem;border:2px solid #e1d9ed;border-radius:.8rem;font:inherit;font-size:1.2rem}.answer input:focus,.answer textarea:focus{outline:3px solid #e7daf7}.submit,.speak{display:inline-flex;align-items:center;justify-content:center;gap:.5rem;border:0;border-radius:2rem;background:#7655ad;color:white;text-decoration:none;padding:.85rem 1.5rem;font:inherit;font-weight:850;cursor:pointer}.submit:disabled{opacity:.65}.speak{background:#f1eafd;color:#6f4da3}.hint{color:#777181}.match{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin:.7rem auto;max-width:500px;text-align:left;font-weight:800}.match select{max-width:250px;font-size:1rem}.tokens{display:flex;justify-content:center;flex-wrap:wrap;gap:.6rem}.tokens button{border:0;background:#f0eafa;color:#5f4788;border-radius:.7rem;padding:.75rem;font:inherit;font-weight:800}.feedback{color:#805c9e;font-weight:700}.end .emoji{font-size:4rem}.correction{background:#f6f1fc;padding:1rem;border-radius:1rem;margin:1rem}.end .submit{margin-top:1rem}`})
-export class GamePlayerPage{
-  private readonly ctx=inject(ChildContext);private readonly route=inject(ActivatedRoute);private readonly gateway=inject(GamesGateway);
-  private readonly gameId=this.route.snapshot.paramMap.get('gameId')??'';private readonly session=signal<SessionDto|null>(null);
-  protected readonly loading=signal(true);protected readonly error=signal('');protected readonly submitting=signal(false);protected readonly feedback=signal('');protected textAnswer='';
-  protected mathAnswer='';protected matches:Record<string,string>={};private readonly orderedIds=signal<string[]>([]);private readonly currentScreen=signal<PlayScreen['kind']>('loading');
-  protected readonly playable=computed(()=>toPlayable(this.session()?.game));protected readonly orderedTokens=computed(()=>{const p=this.playable();if(p?.type!=='SENTENCE_ORDERING')return[];const byId=new Map(p.tokens.map(x=>[x.id,x]));return this.orderedIds().map(id=>byId.get(id)).filter((x):x is NonNullable<typeof x>=>!!x)});
-  protected readonly screen=this.currentScreen.asReadonly();protected readonly correction=signal('');
-  protected readonly prompt=computed(()=>this.playable()?.type==='SENTENCE_ORDERING'?'Remets la phrase dans l’ordre':this.playable()?.type==='MATCHING'?'Relie les bonnes paires':'Prêt ?');
-  constructor(){if(!this.gameId){this.error.set('Ce jeu est introuvable.');this.loading.set(false);return}this.gateway.startSession(this.ctx.spaceId(),this.gameId).subscribe({next:s=>{this.session.set(s);const p=toPlayable(s.game);if(p?.type==='SENTENCE_ORDERING')this.orderedIds.set([...p.tokens].sort(()=>Math.random()-.5).map(t=>t.id));this.currentScreen.set('playing');this.loading.set(false)},error:e=>{this.error.set(e instanceof Error?e.message:'Ce jeu ne peut pas démarrer pour le moment.');this.loading.set(false)}})}
-  protected moveToken(id:string):void{this.orderedIds.update(ids=>{const i=ids.indexOf(id);return i<0?ids:[...ids.slice(i+1),...ids.slice(0,i+1)]})}
-  protected speak(sentence:string):void{if('speechSynthesis'in window){window.speechSynthesis.cancel();window.speechSynthesis.speak(new SpeechSynthesisUtterance(sentence))}}
-  protected submit(game:Playable):void{const s=this.session();if(!s||this.submitting())return;let answer:GameAnswer;
-    if(game.type==='MATH'){const value=Number(this.mathAnswer);if(!this.mathAnswer.trim()||!Number.isFinite(value)){this.feedback.set('Écris un nombre pour continuer.');return}answer={value}}
-    else if(game.type==='DICTATION')answer={text:this.textAnswer.trim()};
-    else if(game.type==='SENTENCE_ORDERING')answer={tokens:this.orderedIds()};
-    else answer={matches:{...this.matches}};
-    this.submitting.set(true);this.feedback.set('');this.gateway.submitAttempt(this.ctx.spaceId(),s.id,{idempotencyKey:uuid(),answer}).subscribe({next:a=>{this.submitting.set(false);const outcome=outcomeOfAttempt(game.type,a);if(outcome.kind==='retry')this.feedback.set(`Essaie encore. Il te reste ${outcome.feedback.attemptsRemaining} essai(s).`);else{this.currentScreen.set(outcome.screen.kind);if(outcome.screen.kind==='failed'&&outcome.screen.correction)this.correction.set(JSON.stringify(outcome.screen.correction))}},error:e=>{this.submitting.set(false);this.feedback.set(e instanceof Error?e.message:'Réponse non envoyée. Réessaie.')}})
+interface GameNavigationState {
+  readonly gameTitle?: unknown;
+  readonly gameType?: unknown;
+}
+
+interface PendingAttempt {
+  readonly idempotencyKey: string;
+  readonly answer: GameAnswer;
+}
+
+@Component({
+  selector: 'ek-game-player-page',
+  imports: [
+    DatePipe,
+    FormsModule,
+    RouterLink,
+    CategoryIconComponent,
+    CharacterComponent,
+    IconComponent,
+    IllustrationComponent,
+    LogoComponent,
+    InactivityCountdownComponent,
+    PlayEndComponent,
+  ],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  templateUrl: './game-player.page.html',
+  styleUrl: './game-player.page.scss',
+})
+export class GamePlayerPage {
+  protected readonly ctx = inject(ChildContext);
+  private readonly route = inject(ActivatedRoute);
+  private readonly location = inject(Location);
+  private readonly gateway = inject(GamesGateway);
+  private readonly demoRewards = inject(ChildDashboardDemoService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly gameId = this.route.snapshot.paramMap.get('gameId') ?? '';
+  private readonly navigationState = this.location.getState() as GameNavigationState | null;
+  private pendingAttempt: PendingAttempt | null = null;
+
+  protected readonly session = signal<SessionDto | null>(null);
+  protected readonly screen = signal<PlayScreen>({ kind: 'loading' });
+  protected readonly loading = signal(true);
+  protected readonly busy = signal(false);
+  protected readonly answer = signal<GameAnswer | null>(null);
+  protected readonly feedback = signal<AttemptFeedback | null>(null);
+  protected readonly statusMessage = signal('');
+  protected readonly errorMessage = signal('');
+  protected readonly retryPending = signal(false);
+  protected readonly starsAwardedThisSession = signal(false);
+  protected readonly mathAnswer = signal('');
+  protected readonly textAnswer = signal('');
+  protected readonly matches = signal<Record<string, string>>({});
+  protected readonly orderedIds = signal<readonly string[]>([]);
+
+  protected readonly playable = computed(() => toPlayable(this.session()?.game));
+  protected readonly orderedTokens = computed(() => {
+    const game = this.playable();
+    if (game?.type !== 'SENTENCE_ORDERING') return [];
+    const byId = new Map(game.tokens.map((token) => [token.id, token]));
+    return this.orderedIds()
+      .map((id) => byId.get(id))
+      .filter((token): token is NonNullable<typeof token> => !!token);
+  });
+  protected readonly orderedSentence = computed(() => this.orderedTokens().map((token) => token.label).join(' '));
+  protected readonly titleFromRoute = signal(
+    typeof this.navigationState?.gameTitle === 'string' ? this.navigationState.gameTitle.trim() : '',
+  );
+  protected readonly gameTypeFromRoute = signal<GameType | null>(
+    this.isGameType(this.navigationState?.gameType) ? this.navigationState.gameType : null,
+  );
+  protected readonly categoryLabel = computed(() => {
+    const type = this.playable()?.type ?? this.gameTypeFromRoute();
+    return type ? GAME_TYPE_LABELS[type] : 'Jeux éducatifs';
+  });
+  protected readonly categoryId = computed<CategoryId | null>(() => {
+    const type = this.playable()?.type ?? this.gameTypeFromRoute();
+    if (type === 'MATH') return 'maths';
+    if (type === 'MATCHING') return 'association';
+    if (type === 'SENTENCE_ORDERING') return 'ordonnancement';
+    if (type === 'DICTATION') return 'dictee';
+    return null;
+  });
+  protected readonly title = computed(
+    () => this.titleFromRoute() || this.categoryLabel(),
+  );
+  protected readonly demoStars = computed(() =>
+    this.gateway.mode === 'demo' && this.ctx.spaceId()
+      ? this.demoRewards.rewardGoalFor(this.ctx.spaceId())
+      : null,
+  );
+  protected readonly remainingAttempts = computed(() => attemptsLeft(this.session()));
+  protected readonly attemptSlots = computed(() =>
+    Array.from({ length: this.session()?.maxAttempts ?? 0 }, (_, index) => index),
+  );
+  protected readonly nextAvailableAt = computed(() => {
+    const screen = this.screen();
+    return screen.kind === 'failed' || screen.kind === 'unfinished' || screen.kind === 'unavailable'
+      ? screen.nextAvailableAt
+      : null;
+  });
+  protected readonly scoreText = computed(() => {
+    const screen = this.screen();
+    return screen.kind === 'success' && screen.score !== null && screen.maxScore !== null
+      ? `${screen.score} / ${screen.maxScore}`
+      : null;
+  });
+  protected readonly correctionText = computed(() => {
+    const screen = this.screen();
+    return screen.kind === 'failed' ? this.formatCorrection(screen.correction) : '';
+  });
+  protected readonly mathKeypad: readonly { readonly key: KeypadKey; readonly label: string; readonly ariaLabel: string }[] = [
+    { key: '1', label: '1', ariaLabel: 'Un' },
+    { key: '2', label: '2', ariaLabel: 'Deux' },
+    { key: '3', label: '3', ariaLabel: 'Trois' },
+    { key: '4', label: '4', ariaLabel: 'Quatre' },
+    { key: '5', label: '5', ariaLabel: 'Cinq' },
+    { key: '6', label: '6', ariaLabel: 'Six' },
+    { key: '7', label: '7', ariaLabel: 'Sept' },
+    { key: '8', label: '8', ariaLabel: 'Huit' },
+    { key: '9', label: '9', ariaLabel: 'Neuf' },
+    { key: '-', label: '±', ariaLabel: 'Changer le signe' },
+    { key: '0', label: '0', ariaLabel: 'Zéro' },
+    { key: ',', label: ',', ariaLabel: 'Virgule décimale' },
+  ];
+
+  constructor() {
+    this.startOrResume();
+  }
+
+  protected setAnswer(answer: GameAnswer | null): void {
+    this.answer.set(answer);
+    if (!this.pendingAttempt) this.errorMessage.set('');
+  }
+
+  protected onMathInput(event: Event): void {
+    const input = event.currentTarget;
+    if (!(input instanceof HTMLInputElement)) return;
+    this.setMathAnswer(normalizeMathInput(input.value));
+    input.value = this.mathAnswer();
+  }
+
+  protected onMathKey(key: KeypadKey): void {
+    this.setMathAnswer(applyKeypadKey(this.mathAnswer(), key));
+  }
+
+  protected clearMathAnswer(): void {
+    this.setMathAnswer('');
+  }
+
+  private setMathAnswer(value: string): void {
+    this.mathAnswer.set(value);
+    this.setAnswer(toMathAnswer(value));
+  }
+
+  protected onTextAnswer(value: string): void {
+    this.textAnswer.set(value);
+    const text = value.trim();
+    this.setAnswer(text ? { text } : null);
+  }
+
+  protected onMatchesChange(): void {
+    const mapping = this.matches();
+    const count = Object.keys(mapping).length;
+    const values = Object.values(mapping);
+    const game = this.playable();
+    this.setAnswer(
+      game?.type === 'MATCHING' &&
+        count === game.left.length &&
+        new Set(values).size === values.length
+        ? { matches: { ...mapping } }
+        : null,
+    );
+  }
+
+  protected selectMatch(leftId: string, rightId: string): void {
+    const current = this.matches();
+    const next = Object.fromEntries(Object.entries(current).filter(([id]) => id !== leftId));
+    if (rightId) {
+      for (const [id, value] of Object.entries(next)) {
+        if (value === rightId) delete next[id];
+      }
+      next[leftId] = rightId;
+    }
+    this.matches.set(next);
+    this.onMatchesChange();
+  }
+
+  protected resetMatches(): void {
+    this.matches.set({});
+    this.onMatchesChange();
+  }
+
+  protected moveToken(id: string): void {
+    this.orderedIds.update((ids) => {
+      const index = ids.indexOf(id);
+      return index < 0 ? ids : [...ids.slice(index + 1), ...ids.slice(0, index + 1)];
+    });
+    const game = this.playable();
+    if (game?.type === 'SENTENCE_ORDERING') this.setAnswer({ tokens: [...this.orderedIds()] });
+  }
+
+  protected resetOrder(): void {
+    const game = this.playable();
+    if (game?.type !== 'SENTENCE_ORDERING') return;
+    this.orderedIds.set(game.tokens.map((token) => token.id));
+    this.setAnswer({ tokens: [...this.orderedIds()] });
+  }
+
+  protected retryStart(): void {
+    this.startOrResume();
+  }
+
+  protected replay(): void {
+    this.startOrResume();
+  }
+
+  protected submitAnswer(): void {
+    const session = this.session();
+    const game = this.playable();
+    if (!session || !game || this.busy() || this.screen().kind !== 'playing') return;
+
+    if (!this.pendingAttempt) {
+      const answer = this.answer();
+      if (!answer) {
+        this.errorMessage.set('Complète ta réponse avant de la valider.');
+        return;
+      }
+      this.pendingAttempt = { idempotencyKey: uuid(), answer };
+    }
+
+    this.busy.set(true);
+    this.errorMessage.set('');
+    this.gateway
+      .submitAttempt(this.ctx.spaceId(), session.id, this.pendingAttempt)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (attempt) => this.handleAttempt(game, session, attempt),
+        error: (error: unknown) => this.handleSubmitError(error, session),
+      });
+  }
+
+  protected refreshSession(): void {
+    const session = this.session();
+    if (!session || this.busy()) return;
+    this.busy.set(true);
+    this.statusMessage.set('On vérifie ta partie…');
+    this.gateway
+      .getSession(this.ctx.spaceId(), session.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (updated) => {
+          this.busy.set(false);
+          this.statusMessage.set('');
+          this.updateSession(updated);
+        },
+        error: (error: unknown) => {
+          this.busy.set(false);
+          this.statusMessage.set('');
+          this.errorMessage.set(`Impossible de vérifier l’état de la partie : ${errorMessage(error)}`);
+        },
+      });
+  }
+
+  protected onCountdownExpired(): void {
+    this.refreshSession();
+  }
+
+  protected retryPendingAttempt(): void {
+    this.submitAnswer();
+  }
+
+  protected speak(sentence: string): void {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      this.statusMessage.set('La lecture audio n’est pas disponible dans ce navigateur.');
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(sentence);
+    utterance.lang = 'fr-FR';
+    window.speechSynthesis.speak(utterance);
+  }
+
+  private startOrResume(): void {
+    if (!this.gameId || !this.ctx.spaceId()) {
+      this.loading.set(false);
+      this.screen.set({ kind: 'missing' });
+      return;
+    }
+
+    this.loading.set(true);
+    this.busy.set(false);
+    this.errorMessage.set('');
+    this.statusMessage.set('');
+    this.session.set(null);
+    this.answer.set(null);
+    this.mathAnswer.set('');
+    this.textAnswer.set('');
+    this.matches.set({});
+    this.orderedIds.set([]);
+    this.feedback.set(null);
+    this.pendingAttempt = null;
+    this.retryPending.set(false);
+    this.starsAwardedThisSession.set(false);
+    this.screen.set({ kind: 'loading' });
+    this.gateway
+      .startSession(this.ctx.spaceId(), this.gameId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (session) => {
+          this.loading.set(false);
+          this.updateSession(session);
+          if (session.game?.type) this.gameTypeFromRoute.set(session.game.type);
+          if (session.status === 'ACTIVE' && session.game) {
+            const game = toPlayable(session.game);
+            if (!game) {
+              this.screen.set({ kind: 'error', error: 'Le contenu de ce jeu ne peut pas être affiché.' });
+              return;
+            }
+            if (game.type === 'SENTENCE_ORDERING') {
+              const ids = game.tokens.map((token) => token.id);
+              this.orderedIds.set(ids);
+              this.setAnswer({ tokens: ids });
+            }
+            this.screen.set({ kind: 'playing' });
+            return;
+          }
+          this.screen.set(endScreenForSession(session) ?? { kind: 'error', error: 'La session n’est pas disponible.' });
+        },
+        error: (error: unknown) => this.handleStartError(error),
+      });
+  }
+
+  private handleStartError(error: unknown): void {
+    this.loading.set(false);
+    const apiError = toApiError(error, 'activites');
+    if (apiError.isNotFound) {
+      this.screen.set({ kind: 'missing' });
+      return;
+    }
+    if (apiError.isConflict) {
+      this.checkAvailability(apiError);
+      return;
+    }
+    this.errorMessage.set(apiError.message);
+    this.screen.set({ kind: 'error', error: apiError });
+  }
+
+  private checkAvailability(startError: ApiError): void {
+    this.busy.set(true);
+    this.gateway
+      .availability(this.ctx.spaceId(), this.gameId, 'child')
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (availability) => {
+          this.busy.set(false);
+          if (!availability.available) {
+            this.screen.set({
+              kind: 'unavailable',
+              nextAvailableAt: availability.nextAvailableAt ?? unavailableUntil(startError.message),
+            });
+            return;
+          }
+          this.errorMessage.set(startError.message);
+          this.screen.set({ kind: 'error', error: startError });
+        },
+        error: (availabilityError: unknown) => {
+          this.busy.set(false);
+          this.errorMessage.set(
+            `${startError.message} La disponibilité n’a pas pu être vérifiée : ${errorMessage(availabilityError)}`,
+          );
+          this.screen.set({ kind: 'error', error: availabilityError });
+        },
+      });
+  }
+
+  private handleAttempt(game: Playable, session: SessionDto, attempt: AttemptDto): void {
+    this.pendingAttempt = null;
+    this.retryPending.set(false);
+    this.feedback.set(null);
+    this.session.set({
+      ...session,
+      status: attempt.status,
+      attemptsUsed: attempt.number,
+      nextAvailableAt: attempt.nextAvailableAt,
+      inactivityDeadlineAt: attempt.status === 'ACTIVE' ? session.inactivityDeadlineAt : null,
+    });
+    const outcome = outcomeOfAttempt(game.type, attempt);
+    if (outcome.kind === 'retry') {
+      this.feedback.set(outcome.feedback);
+      this.errorMessage.set('');
+      this.busy.set(true);
+      this.gateway
+        .getSession(this.ctx.spaceId(), session.id)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: (updated) => {
+            this.busy.set(false);
+            this.updateSession(updated);
+          },
+          error: (error: unknown) => {
+            this.busy.set(false);
+            this.errorMessage.set(`Ta réponse a été reçue, mais le délai n’a pas pu être vérifié : ${errorMessage(error)}`);
+          },
+        });
+      return;
+    }
+
+    this.busy.set(false);
+    this.screen.set(outcome.screen);
+    if (outcome.screen.kind === 'success' && this.gateway.mode === 'demo') {
+      this.starsAwardedThisSession.set(
+        this.demoRewards.awardSuccessfulSession(this.ctx.spaceId(), session.id),
+      );
+    }
+  }
+
+  private handleSubmitError(error: unknown, session: SessionDto): void {
+    const action = submitErrorAction(error);
+    if (action === 'retry-same-key') {
+      this.busy.set(false);
+      this.retryPending.set(true);
+      this.errorMessage.set(
+        `La réponse n’a pas pu être confirmée. Réessaie l’envoi sans modifier ta réponse : ${errorMessage(error)}`,
+      );
+      return;
+    }
+
+    this.pendingAttempt = null;
+    this.retryPending.set(false);
+    if (action === 'refresh-session') {
+      this.busy.set(true);
+      this.gateway
+        .getSession(this.ctx.spaceId(), session.id)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: (updated) => {
+            this.busy.set(false);
+            this.errorMessage.set('La partie a changé. Voici son état actuel.');
+            this.updateSession(updated);
+          },
+          error: (refreshError: unknown) => {
+            this.busy.set(false);
+            this.errorMessage.set(
+              `La partie doit être actualisée, mais sa lecture a échoué : ${errorMessage(refreshError)}`,
+            );
+          },
+        });
+      return;
+    }
+
+    this.busy.set(false);
+    this.errorMessage.set(errorMessage(error));
+  }
+
+  private updateSession(session: SessionDto): void {
+    this.session.set(session);
+    if (session.game?.type) this.gameTypeFromRoute.set(session.game.type);
+    const ended = endScreenForSession(session);
+    if (ended) this.screen.set(ended);
+    else if (session.status === 'ACTIVE' && session.game) this.screen.set({ kind: 'playing' });
+  }
+
+  private formatCorrection(correction: Correction | null): string {
+    if (!correction) return '';
+    switch (correction.type) {
+      case 'MATH':
+        return `Le résultat attendu était ${correction.expected}.`;
+      case 'MATCHING':
+        return `Les associations attendues : ${correction.pairs.map((pair) => `${pair.left} → ${pair.right}`).join(' · ')}`;
+      case 'SENTENCE_ORDERING':
+        return `La phrase correcte : ${correction.sentence}`;
+      case 'DICTATION':
+        return `La phrase attendue : ${correction.sentence}`;
+    }
+  }
+
+  private isGameType(value: unknown): value is GameType {
+    return value === 'MATH' || value === 'MATCHING' || value === 'SENTENCE_ORDERING' || value === 'DICTATION';
   }
 }

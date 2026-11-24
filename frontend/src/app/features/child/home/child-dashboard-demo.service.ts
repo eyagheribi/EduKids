@@ -1,7 +1,7 @@
-import { inject, Injectable } from '@angular/core';
+import { inject, Injectable, signal } from '@angular/core';
 import { APP_CONFIG } from '../../../core/config/app-config';
 import { DemoStore } from '../../../core/demo/demo-store';
-import { ChildAchievementBadge, ChildStarRewardGoal } from '../../../core/models/child-rewards.models';
+import { ChildStarRewardGoal } from '../../../core/models/child-rewards.models';
 import { GameType, SESSION_RULES } from '../../../core/models/activites.models';
 import { findCharacter } from '../../../shared/ui/character/characters';
 
@@ -29,22 +29,54 @@ const DEMO_BADGES: readonly ChildDashboardBadge[] = [
 ];
 
 const DEMO_CHARACTER_KEY = 'edukids.demo.child-character.v1';
+const DEMO_REWARDS_KEY = 'edukids.demo.child-rewards.v1';
+const INITIAL_DEMO_STARS = 126;
+const DEMO_STARS_PER_WIN = 10;
+
+interface DemoRewardState {
+  readonly earnedStars: number;
+  readonly creditedSessionIds: readonly string[];
+}
 
 /** Isolated browser-only examples for child rewards, badges and demo-only session discovery. */
 @Injectable({ providedIn: 'root' })
 export class ChildDashboardDemoService {
   private readonly store = inject(DemoStore);
   private readonly gamesMode = inject(APP_CONFIG).integrations.games;
+  private readonly rewardRevision = signal(0);
+  private readonly rewardState = new Map<string, DemoRewardState>();
 
   rewardGoalFor(spaceId: string): ChildStarRewardGoal {
+    this.rewardRevision();
     return {
       id: `demo-reward-${spaceId}`,
       spaceId,
       targetStars: 200,
-      earnedStars: 126,
+      earnedStars: this.rewardStateFor(spaceId).earnedStars,
       promisedReward: 'Une surprise',
       updatedAt: null,
     };
+  }
+
+  /** Credits a successful demo session once, scoped to the child's own space. */
+  awardSuccessfulSession(spaceId: string, sessionId: string): boolean {
+    if (this.gamesMode !== 'demo' || !spaceId || !sessionId) return false;
+    const current = this.rewardStateFor(spaceId);
+    if (current.creditedSessionIds.includes(sessionId)) return false;
+
+    const next: DemoRewardState = {
+      earnedStars: current.earnedStars + DEMO_STARS_PER_WIN,
+      creditedSessionIds: [...current.creditedSessionIds, sessionId],
+    };
+    this.rewardState.set(spaceId, next);
+    try {
+      const saved = this.readStoredRewards();
+      localStorage.setItem(DEMO_REWARDS_KEY, JSON.stringify({ ...saved, [spaceId]: next }));
+    } catch {
+      // The in-memory state still keeps this tab's demo reward idempotent.
+    }
+    this.rewardRevision.update((revision) => revision + 1);
+    return true;
   }
 
   badgesFor(_spaceId: string): readonly ChildDashboardBadge[] {
@@ -102,6 +134,35 @@ export class ChildDashboardDemoService {
       localStorage.setItem(DEMO_CHARACTER_KEY, JSON.stringify({ ...choices, [spaceId]: key }));
     } catch {
       // Character selection remains in memory when browser storage is unavailable.
+    }
+  }
+
+  private rewardStateFor(spaceId: string): DemoRewardState {
+    const cached = this.rewardState.get(spaceId);
+    if (cached) return cached;
+
+    const stored = this.readStoredRewards()[spaceId];
+    const value =
+      stored &&
+      typeof stored.earnedStars === 'number' &&
+      Number.isFinite(stored.earnedStars) &&
+      stored.earnedStars >= INITIAL_DEMO_STARS &&
+      Array.isArray(stored.creditedSessionIds) &&
+      stored.creditedSessionIds.every((id) => typeof id === 'string')
+        ? { earnedStars: stored.earnedStars, creditedSessionIds: stored.creditedSessionIds }
+        : { earnedStars: INITIAL_DEMO_STARS, creditedSessionIds: [] };
+    this.rewardState.set(spaceId, value);
+    return value;
+  }
+
+  private readStoredRewards(): Record<string, DemoRewardState> {
+    try {
+      const value: unknown = JSON.parse(localStorage.getItem(DEMO_REWARDS_KEY) ?? '{}');
+      return value !== null && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, DemoRewardState>)
+        : {};
+    } catch {
+      return {};
     }
   }
 }

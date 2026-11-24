@@ -39,7 +39,7 @@ export function normalizeMathInput(raw: string): string {
 export function parseMathAnswer(text: string): number | null {
   const canonical = normalizeMathInput(text.trim());
   if (canonical !== text.trim().replace(/[−–—]/g, '-').replace(/\./g, ',')) return null;
-  if (!/^-?(\d+(,\d*)?|,\d+)$/.test(canonical)) return null;
+  if (!/^-?(\d+(,\d+)?|,\d+)$/.test(canonical)) return null;
   const value = Number(canonical.replace(',', '.'));
   return Number.isFinite(value) ? value : null;
 }

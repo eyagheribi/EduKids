@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject, OnInit, signal } from '@angular/core';
-import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { filter } from 'rxjs';
 import { AuthFlowsService } from '../../../core/auth/auth-flows.service';
 import { LogoComponent } from '../../../shared/ui/brand/logo.component';
 import { CharacterComponent } from '../../../shared/ui/character/character.component';
@@ -30,7 +32,12 @@ interface ChildNavItem {
   providers: [ChildContext],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="child-layout" [class.child-layout--drawer-open]="drawerOpen()">
+    <div
+      class="child-layout"
+      [class.child-layout--drawer-open]="drawerOpen()"
+      [class.child-layout--immersive]="immersive()"
+    >
+      @if (!immersive()) {
       <aside class="sidebar" id="navigation-enfant" aria-label="Navigation de l’espace enfant">
         <div class="sidebar__brand">
           <a routerLink="/enfant" aria-label="EduKids — accueil enfant" (click)="drawerOpen.set(false)">
@@ -72,8 +79,10 @@ interface ChildNavItem {
         tabindex="-1"
         (click)="drawerOpen.set(false)"
       ></button>
+      }
 
       <div class="main">
+        @if (!immersive()) {
         <header class="topbar">
           <button
             type="button"
@@ -105,6 +114,7 @@ interface ChildNavItem {
             </div>
           </details>
         </header>
+        }
 
         @if (ctx.error()) {
           <div class="space-error" role="alert">
@@ -114,7 +124,7 @@ interface ChildNavItem {
           </div>
         }
 
-        <main class="content" id="contenu-enfant">
+        <main class="content" id="contenu-enfant" [class.content--game]="immersive()">
           <router-outlet />
         </main>
       </div>
@@ -129,6 +139,7 @@ interface ChildNavItem {
       background: linear-gradient(180deg, #f7f2ff 0%, #fbfaff 48%, #f3fcf4 100%);
     }
     .child-layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); min-height: 100vh; }
+    .child-layout--immersive { grid-template-columns: minmax(0, 1fr); }
     .sidebar {
       position: sticky;
       top: 0;
@@ -228,6 +239,7 @@ interface ChildNavItem {
     .space-error span { flex: 1; }
     .space-error button { border: 0; background: transparent; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
     .content { position: relative; z-index: 1; flex: 1; width: 100%; max-width: 1530px; margin: 0 auto; padding: .3rem clamp(1rem, 2.2vw, 2rem) 2rem; }
+    .content--game { max-width: none; padding: 0; }
     a:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px solid #8750d0; outline-offset: 3px; }
     @media (max-width: 920px) {
       .child-layout { grid-template-columns: minmax(0, 1fr); }
@@ -263,6 +275,7 @@ interface ChildNavItem {
 export class ChildShellComponent implements OnInit {
   protected readonly ctx = inject(ChildContext);
   protected readonly drawerOpen = signal(false);
+  protected readonly immersive = signal(false);
   protected readonly navItems: readonly ChildNavItem[] = [
     { label: 'Accueil', icon: 'home', link: '/enfant' },
     { label: 'Mon espace', icon: 'user', link: '/enfant/personnage' },
@@ -271,6 +284,17 @@ export class ChildShellComponent implements OnInit {
     { label: 'Mes récompenses', icon: 'trophy', link: '/enfant', fragment: 'mes-badges' },
   ];
   private readonly auth = inject(AuthFlowsService);
+  private readonly router = inject(Router);
+
+  constructor() {
+    this.immersive.set(this.isGameRoute(this.router.url));
+    this.router.events
+      .pipe(
+        filter((event): event is NavigationEnd => event instanceof NavigationEnd),
+        takeUntilDestroyed(),
+      )
+      .subscribe((event) => this.immersive.set(this.isGameRoute(event.urlAfterRedirects)));
+  }
 
   ngOnInit(): void {
     this.ctx.load();
@@ -278,5 +302,9 @@ export class ChildShellComponent implements OnInit {
 
   protected leave(): void {
     this.auth.logoutChild();
+  }
+
+  private isGameRoute(url: string): boolean {
+    return url.split(/[?#]/, 1)[0]?.startsWith('/enfant/jouer/') ?? false;
   }
 }

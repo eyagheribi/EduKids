@@ -85,7 +85,7 @@
                 <small class="resume-hint">Ta partie est prête à reprendre</small>
               }
             </div>
-            <a class="continue-button" [routerLink]="['/enfant/jouer', game.gameId]">
+            <a class="continue-button" [routerLink]="['/enfant/jouer', game.gameId]" [state]="{ gameTitle: game.title, gameType: game.type }">
               <ek-icon name="play" [size]="17" /> Continuer
             </a>
           </div>

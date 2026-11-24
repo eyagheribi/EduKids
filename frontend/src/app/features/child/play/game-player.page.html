@@ -1,0 +1,276 @@
+<div class="game-page">
+  <header class="game-topbar">
+    <a class="brand" [routerLink]="categoryId() ? ['/enfant/categories', categoryId()] : ['/enfant']" aria-label="Retour aux jeux">
+      <ek-logo size="sm" />
+    </a>
+    <a
+      class="category-back"
+      [routerLink]="categoryId() ? ['/enfant/categories', categoryId()] : ['/enfant']"
+    >
+      <ek-icon name="arrow-left" [size]="19" />
+      <span>{{ categoryLabel() }}</span>
+    </a>
+    <div class="topbar-spacer"></div>
+    @if (demoStars(); as reward) {
+      <div class="star-count" aria-label="Étoiles de démonstration">
+        <ek-icon name="star" [size]="25" />
+        <strong>{{ reward.earnedStars }}</strong>
+        <span>étoiles</span>
+      </div>
+    }
+    <div class="child-profile">
+      <ek-character [key]="ctx.space()?.personnagePrefere" [size]="39" [framed]="true" />
+      <span>{{ ctx.firstName() || 'Mon espace' }}</span>
+    </div>
+  </header>
+
+  <main class="game-content">
+    <section class="game-heading" aria-labelledby="game-title">
+      @if (categoryId(); as category) {
+        <ek-category-icon [category]="category" [size]="61" />
+      }
+      <div>
+        <p class="eyebrow">{{ categoryLabel() }}</p>
+        <h1 id="game-title">{{ title() }}</h1>
+        <p class="instructions">
+          @if (playable()?.type === 'MATH') { Résous l’expression et écris le résultat. }
+          @else if (playable()?.type === 'MATCHING') { Relie chaque mot à son partenaire. }
+          @else if (playable()?.type === 'SENTENCE_ORDERING') { Remets les mots dans le bon ordre. }
+          @else if (playable()?.type === 'DICTATION') { Écoute la phrase et écris ce que tu entends. }
+          @else { Prépare-toi à jouer ! }
+        </p>
+      </div>
+      <ek-icon class="heading-art" name="sparkles" [size]="60" />
+    </section>
+
+    @if (session()) {
+      <div class="session-status">
+        <div class="lives" role="status" [attr.aria-label]="remainingAttempts() + ' tentatives restantes'">
+          <span class="lives-label">Tentatives restantes</span>
+          <span class="hearts">
+            @for (slot of attemptSlots(); track slot) {
+              <ek-icon
+                name="heart"
+                [size]="27"
+                [class.heart--active]="slot < remainingAttempts()"
+                [class.heart--empty]="slot >= remainingAttempts()"
+              />
+            }
+          </span>
+          <strong>{{ remainingAttempts() }}</strong>
+        </div>
+        @if (screen().kind === 'playing' && session()?.inactivityDeadlineAt; as deadline) {
+          <ek-play-countdown [deadline]="deadline" (expired)="onCountdownExpired()" />
+        }
+      </div>
+    }
+
+    @if (loading() || screen().kind === 'loading') {
+      <section class="game-card loading-card" aria-live="polite">
+        <ek-icon name="loader" [size]="30" />
+        <h2>On prépare ton jeu…</h2>
+        <p>Un instant et l’aventure commence !</p>
+      </section>
+    } @else if (screen().kind === 'error') {
+      <section class="game-card error-card" role="alert">
+        <ek-icon name="alert" [size]="35" />
+        <h2>Oups, le jeu n’est pas prêt</h2>
+        <p>{{ errorMessage() || 'Une erreur empêche le chargement de ta partie.' }}</p>
+        <div class="result-actions">
+          <button type="button" class="button button--primary" [disabled]="busy()" (click)="retryStart()">
+            Réessayer
+          </button>
+          <a class="button button--quiet" [routerLink]="categoryId() ? ['/enfant/categories', categoryId()] : ['/enfant']">
+            Retour aux jeux
+          </a>
+        </div>
+      </section>
+    } @else if (screen().kind === 'missing') {
+      <ek-play-end tone="missing" heading="Ce jeu est introuvable">
+        <p>Il n’est plus disponible, mais d’autres jeux t’attendent.</p>
+        <a actions class="button button--quiet" [routerLink]="categoryId() ? ['/enfant/categories', categoryId()] : ['/enfant']">
+          Retour aux jeux
+        </a>
+      </ek-play-end>
+    } @else if (screen().kind === 'unavailable') {
+      <ek-play-end tone="rest" heading="On rejouera bientôt !">
+        <p>Tu pourras recommencer quand le temps d’attente sera terminé.</p>
+        @if (nextAvailableAt(); as availableAt) {
+          <p class="available-at">Disponible le <time [attr.datetime]="availableAt">{{ availableAt | date: 'EEE d MMM, HH:mm' }}</time></p>
+        }
+        <a actions class="button button--quiet" [routerLink]="categoryId() ? ['/enfant/categories', categoryId()] : ['/enfant']">
+          Voir mes autres jeux
+        </a>
+      </ek-play-end>
+    } @else if (screen().kind === 'success') {
+      <ek-play-end tone="success" heading="Bravo, tu as réussi !">
+        <p>Tu as terminé ce jeu. Continue comme ça !</p>
+        @if (scoreText(); as score) { <p class="result-score">Ton score : <strong>{{ score }}</strong></p> }
+        @if (starsAwardedThisSession()) { <p class="stars-earned">Tu gagnes 10 étoiles de démonstration !</p> }
+        <div actions class="result-actions">
+          <button type="button" class="button button--primary" [disabled]="busy()" (click)="replay()">
+            Rejouer
+          </button>
+          <a class="button button--quiet" [routerLink]="categoryId() ? ['/enfant/categories', categoryId()] : ['/enfant']">
+            Retour aux jeux
+          </a>
+        </div>
+      </ek-play-end>
+    } @else if (screen().kind === 'failed') {
+      <ek-play-end tone="failed" heading="Tu as fait de ton mieux !">
+        <p>Tu pourras réessayer après le temps de repos. Chaque partie t’aide à progresser.</p>
+        @if (correctionText()) { <p class="correction">{{ correctionText() }}</p> }
+        @if (nextAvailableAt(); as availableAt) {
+          <p class="available-at">Tu pourras rejouer le <time [attr.datetime]="availableAt">{{ availableAt | date: 'EEE d MMM, HH:mm' }}</time>.</p>
+        }
+        <a actions class="button button--quiet" [routerLink]="categoryId() ? ['/enfant/categories', categoryId()] : ['/enfant']">
+          Retour aux jeux
+        </a>
+      </ek-play-end>
+    } @else if (screen().kind === 'unfinished') {
+      <ek-play-end tone="unfinished" heading="La partie s’est arrêtée">
+        <p>Le temps est écoulé. Tu pourras reprendre un autre jeu pendant que cette partie se repose.</p>
+        @if (nextAvailableAt(); as availableAt) {
+          <p class="available-at">Disponible le <time [attr.datetime]="availableAt">{{ availableAt | date: 'EEE d MMM, HH:mm' }}</time></p>
+        }
+        <a actions class="button button--quiet" [routerLink]="categoryId() ? ['/enfant/categories', categoryId()] : ['/enfant']">
+          Voir mes autres jeux
+        </a>
+      </ek-play-end>
+    } @else if (playable(); as game) {
+      <form class="game-card" (ngSubmit)="retryPendingAttempt()">
+        @if (game.type === 'MATH') {
+          <section class="engine engine--math" aria-label="Question de mathématiques">
+            <p class="math-expression">{{ game.expression }} <span>= ?</span></p>
+            <label class="answer-label" for="math-answer">Ta réponse</label>
+            <input
+              id="math-answer"
+              class="math-answer"
+              type="text"
+              inputmode="decimal"
+              autocomplete="off"
+              placeholder="Écris le résultat"
+              [value]="mathAnswer()"
+              [attr.aria-label]="'Ta réponse à ' + game.expression"
+              [disabled]="busy() || retryPending()"
+              (input)="onMathInput($event)"
+            />
+            <div class="math-keypad" role="group" aria-label="Clavier numérique">
+              @for (item of mathKeypad; track item.key) {
+                <button
+                  type="button"
+                  class="math-keypad__key"
+                  [disabled]="busy() || retryPending()"
+                  [attr.aria-label]="item.ariaLabel"
+                  (click)="onMathKey(item.key)"
+                >
+                  {{ item.label }}
+                </button>
+              }
+              <button
+                type="button"
+                class="math-keypad__key math-keypad__key--utility"
+                aria-label="Effacer le dernier caractère"
+                [disabled]="busy() || retryPending()"
+                (click)="onMathKey('back')"
+              >
+                ⌫
+              </button>
+              <button
+                type="button"
+                class="math-keypad__key math-keypad__key--utility math-keypad__key--clear"
+                [disabled]="busy() || retryPending()"
+                (click)="clearMathAnswer()"
+              >
+                Tout effacer
+              </button>
+            </div>
+          </section>
+        } @else if (game.type === 'MATCHING') {
+          <section class="engine engine--matching" aria-label="Jeu d’association">
+            <p class="engine-instruction">Choisis un mot à gauche, puis son partenaire à droite.</p>
+            <div class="matching-list">
+              @for (item of game.left; track item.id) {
+                <label class="match-row">
+                  <span>{{ item.label }}</span>
+                  <select
+                    [ngModel]="matches()[item.id] || ''"
+                    [ngModelOptions]="{ standalone: true }"
+                    [disabled]="busy() || retryPending()"
+                    (ngModelChange)="selectMatch(item.id, $event)"
+                    [attr.aria-label]="'Partenaire de ' + item.label"
+                  >
+                    <option value="">Choisir un mot…</option>
+                    @for (right of game.right; track right.id) {
+                      <option [value]="right.id">{{ right.label }}</option>
+                    }
+                  </select>
+                </label>
+              }
+            </div>
+            <button type="button" class="text-button" [disabled]="busy() || retryPending()" (click)="resetMatches()">
+              Réinitialiser mes associations
+            </button>
+          </section>
+        } @else if (game.type === 'SENTENCE_ORDERING') {
+          <section class="engine engine--ordering" aria-label="Jeu d’ordonnancement de mots">
+            <p class="engine-instruction">Touche les mots pour les faire avancer dans la phrase.</p>
+            <div class="word-bank" aria-label="Mots mélangés">
+              @for (token of orderedTokens(); track token.id) {
+                <button
+                  type="button"
+                  class="word-token"
+                  [disabled]="busy() || retryPending()"
+                  (click)="moveToken(token.id)"
+                >
+                  {{ token.label }}
+                </button>
+              }
+            </div>
+            <p class="sentence-preview" aria-live="polite">
+              {{ orderedSentence() || 'Ta phrase apparaîtra ici.' }}
+            </p>
+            <button type="button" class="text-button" [disabled]="busy() || retryPending()" (click)="resetOrder()">
+              Recommencer
+            </button>
+          </section>
+        } @else {
+          <section class="engine engine--dictation" aria-label="Jeu de dictée">
+            <ek-illustration name="child-headphones" [width]="170" [eager]="true" />
+            <div class="audio-controls">
+              <button type="button" class="audio-button" (click)="speak(game.sentence)">
+                <ek-icon name="volume" [size]="30" /> Écouter la phrase
+              </button>
+              <p class="audio-hint">Tu peux réécouter autant de fois que tu veux.</p>
+            </div>
+            <label class="answer-label" for="dictation-answer">Écris ce que tu entends</label>
+            <textarea
+              id="dictation-answer"
+              class="dictation-answer"
+              rows="3"
+              [ngModel]="textAnswer()"
+              [ngModelOptions]="{ standalone: true }"
+              [disabled]="busy() || retryPending()"
+              (ngModelChange)="onTextAnswer($event)"
+            ></textarea>
+          </section>
+        }
+
+        @if (feedback(); as attemptFeedback) {
+          <p class="attempt-feedback" aria-live="polite">
+            Pas encore ! Il te reste {{ attemptFeedback.attemptsRemaining }}
+            {{ attemptFeedback.attemptsRemaining === 1 ? 'essai' : 'essais' }}.
+            @if (attemptFeedback.showScore) {
+              <span>Score : {{ attemptFeedback.score }} / {{ attemptFeedback.maxScore }}.</span>
+            }
+          </p>
+        }
+        @if (errorMessage()) { <p class="submit-error" role="alert">{{ errorMessage() }}</p> }
+        @if (statusMessage()) { <p class="status-message" role="status">{{ statusMessage() }}</p> }
+        <button class="button button--validate" type="submit" [disabled]="busy() || (!answer() && !retryPending())">
+          @if (busy()) { Vérification… } @else if (retryPending()) { Réessayer l’envoi } @else { Valider }
+        </button>
+      </form>
+    }
+  </main>
+</div>

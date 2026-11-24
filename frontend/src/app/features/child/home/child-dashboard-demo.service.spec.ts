@@ -90,4 +90,17 @@ describe('ChildDashboardDemoService', () => {
 
     expect(service.resumableGameFor('space-1')).toBeNull();
   });
+
+  it('credits a successful demo session once and isolates stars by space', () => {
+    expect(service.rewardGoalFor('space-1').earnedStars).toBe(126);
+    expect(service.awardSuccessfulSession('space-1', 'session-1')).toBe(true);
+    expect(service.awardSuccessfulSession('space-1', 'session-1')).toBe(false);
+    expect(service.rewardGoalFor('space-1').earnedStars).toBe(136);
+    expect(service.rewardGoalFor('space-2').earnedStars).toBe(126);
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ providers: [{ provide: APP_CONFIG, useValue: config }] });
+    service = TestBed.inject(ChildDashboardDemoService);
+    expect(service.rewardGoalFor('space-1').earnedStars).toBe(136);
+  });
 });
