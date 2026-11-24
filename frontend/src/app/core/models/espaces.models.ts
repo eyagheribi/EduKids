@@ -1,9 +1,9 @@
 // Contracts of Espaces.Api (src/Espaces.Api/Controllers). JSON is camelCase.
 
 /** Activity categories accepted by Espaces.Api (EspacesController.TypesValides). */
-export type EspacesActivite = 'Maths' | 'Association' | 'Dictee';
+export type EspacesActivite = 'Maths' | 'Association' | 'Ordonnancement' | 'Dictee';
 
-export const ESPACES_ACTIVITES: readonly EspacesActivite[] = ['Maths', 'Association', 'Dictee'];
+export const ESPACES_ACTIVITES: readonly EspacesActivite[] = ['Maths', 'Association', 'Ordonnancement', 'Dictee'];
 
 export function isEspacesActivite(value: string): value is EspacesActivite {
   return (ESPACES_ACTIVITES as readonly string[]).includes(value);

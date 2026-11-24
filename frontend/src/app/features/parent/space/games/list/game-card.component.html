@@ -40,6 +40,8 @@
     } @else if (s && s.type === 'SENTENCE_ORDERING') {
       <blockquote class="sentence">«&nbsp;{{ s.sentence }}&nbsp;»</blockquote>
       <p class="count"><ek-icon name="list-ordered" [size]="16" /> {{ plural(s.words, 'mot', 'mots') }}</p>
+    } @else if (s && s.type === 'DICTATION') {
+      <p class="count"><ek-icon name="volume" [size]="16" /> Dictée · {{ plural(s.words, 'mot', 'mots') }}</p>
     } @else {
       <p class="unreadable"><ek-icon name="alert" [size]="16" /> Contenu illisible : ouvrez le jeu pour le corriger.</p>
     }

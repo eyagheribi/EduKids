@@ -3,6 +3,7 @@ import { catchError, forkJoin, map, Observable, of, switchMap, tap, throwError }
 import { ApiError, toApiError } from '../api/api-error';
 import { EspacesApiService } from '../api/espaces-api.service';
 import { SessionService } from '../auth/session.service';
+import { uuid } from '../../shared/utils/ids';
 import {
   ChildSpace,
   CreerEspaceRequest,
@@ -42,6 +43,15 @@ export class ChildSpacesStore {
     }
     const cached = this.state();
     if (cached && !force) return of(cached);
+    if (owner === 'parent-demo') {
+      const examples: readonly ChildSpace[] = [
+        { id: 'demo-adam', nomEnfant: 'Adam', codeAcces: 'A1B2C3', avatar: '', personnagePrefere: 'hibou', activites: ['Maths', 'Association'] },
+        { id: 'demo-sarah', nomEnfant: 'Sarah', codeAcces: 'S4R4H1', avatar: '', personnagePrefere: 'renard', activites: ['Maths', 'Dictee'] },
+      ];
+      this.state.set(examples);
+      this.loadingState.set(false);
+      return of(examples);
+    }
     this.loadingState.set(true);
     this.errorState.set(null);
     return this.api.list().pipe(
@@ -82,6 +92,10 @@ export class ChildSpacesStore {
 
   /** Returns a space from cache or fetches it (404 → ApiError). */
   get(id: string): Observable<ChildSpace> {
+    if (this.session.parent()?.userId === 'parent-demo') {
+      const found = this.state()?.find((space) => space.id === id);
+      return found ? of(found) : throwError(() => new Error('Espace de démonstration introuvable.'));
+    }
     return this.api.get(id).pipe(tap((space) => this.upsert(space)));
   }
 
@@ -90,6 +104,11 @@ export class ChildSpacesStore {
   }
 
   create(request: CreerEspaceRequest): Observable<EspaceCreeResponse> {
+    if (this.session.parent()?.userId === 'parent-demo') {
+      const created: EspaceCreeResponse = { id: `demo-${uuid()}`, nomEnfant: request.nomEnfant, codeAcces: 'D' + Math.random().toString(36).slice(2, 7).toUpperCase(), activites: request.activites };
+      this.upsert({ id: created.id, nomEnfant: created.nomEnfant, codeAcces: created.codeAcces, avatar: '', personnagePrefere: '', activites: parseActivites(created.activites) });
+      return of(created);
+    }
     return this.api.create(request).pipe(
       tap((created) =>
         this.upsert({
@@ -105,6 +124,13 @@ export class ChildSpacesStore {
   }
 
   update(id: string, request: ModifierEspaceRequest): Observable<ChildSpace> {
+    if (this.session.parent()?.userId === 'parent-demo') {
+      const current = this.state()?.find((space) => space.id === id);
+      if (!current) return throwError(() => new Error('Espace de démonstration introuvable.'));
+      const updated: ChildSpace = { ...current, nomEnfant: request.nomEnfant ?? current.nomEnfant, avatar: request.avatar ?? current.avatar, activites: request.activites ? parseActivites(request.activites) : current.activites };
+      this.upsert(updated);
+      return of(updated);
+    }
     return this.api.update(id, request).pipe(
       // PUT returns no code/character: re-read the detail to keep the cache exact.
       switchMap(() => this.api.get(id)),
@@ -113,6 +139,10 @@ export class ChildSpacesStore {
   }
 
   delete(id: string): Observable<void> {
+    if (this.session.parent()?.userId === 'parent-demo') {
+      this.state.update((list) => list?.filter((space) => space.id !== id) ?? null);
+      return of(undefined);
+    }
     return this.api.delete(id).pipe(
       tap(() => this.state.update((list) => list?.filter((s) => s.id !== id) ?? null)),
       catchError((error: unknown) => throwError(() => toApiError(error, 'espaces'))),

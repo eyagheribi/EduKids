@@ -64,7 +64,14 @@ export class SpaceShellComponent {
   }
 
   protected openEdit(): void {
-    this.toast.info('La modification de l’espace sera bientôt disponible.');
+    const space = this.ctx.space();
+    if (!space) return;
+    const nextName = window.prompt('Nom de l’enfant', space.nomEnfant)?.trim();
+    if (!nextName || nextName === space.nomEnfant) return;
+    this.ctx.update({ nomEnfant: nextName }).subscribe({
+      next: () => this.toast.success(`L’espace de ${nextName} a été mis à jour.`),
+      error: (error: unknown) => this.toast.error(toApiError(error, 'espaces').message),
+    });
   }
 
   protected async confirmDelete(): Promise<void> {

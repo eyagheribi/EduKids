@@ -239,6 +239,8 @@ export function buildRequestFromValues(type: GameType, values: EditorValues): Cr
       return buildGameRequest(type, values.title, buildMatchingContent(values.pairs));
     case 'SENTENCE_ORDERING':
       return buildGameRequest(type, values.title, buildSentenceContent(values.sentence));
+    case 'DICTATION':
+      return buildGameRequest(type, values.title, { sentence: values.sentence.trim() });
   }
 }
 
@@ -251,6 +253,7 @@ export function valuesFromContent(content: ParsedContent | null): Partial<Editor
     case 'MATCHING':
       return { pairs: content.pairs.map((p) => ({ left: p.left, right: p.right })) };
     case 'SENTENCE_ORDERING':
+    case 'DICTATION':
       return { sentence: content.sentence };
   }
 }

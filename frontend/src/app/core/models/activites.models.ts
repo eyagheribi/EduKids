@@ -6,8 +6,8 @@
 //   MATCHING correction→ [{ "Id", "Left", "Right" }]
 // The normalizers below accept both casings defensively.
 
-export type GameType = 'MATH' | 'MATCHING' | 'SENTENCE_ORDERING';
-export const GAME_TYPES: readonly GameType[] = ['MATH', 'MATCHING', 'SENTENCE_ORDERING'];
+export type GameType = 'MATH' | 'MATCHING' | 'SENTENCE_ORDERING' | 'DICTATION';
+export const GAME_TYPES: readonly GameType[] = ['MATH', 'MATCHING', 'SENTENCE_ORDERING', 'DICTATION'];
 
 export type SessionStatus = 'ACTIVE' | 'SUCCESS' | 'FAILED' | 'UNFINISHED';
 
@@ -32,7 +32,11 @@ export interface SentenceContent {
   readonly sentence: string;
 }
 
-export type GameContent = MathContent | MatchingContent | SentenceContent;
+export interface DictationContent {
+  readonly sentence: string;
+}
+
+export type GameContent = MathContent | MatchingContent | SentenceContent | DictationContent;
 
 /** POST/PUT /api/spaces/{spaceId}/games body. */
 export interface CreateGameRequest {
@@ -89,7 +93,11 @@ export interface SentenceAnswer {
   readonly tokens: readonly string[];
 }
 
-export type GameAnswer = MathAnswer | MatchingAnswer | SentenceAnswer;
+export interface DictationAnswer {
+  readonly text: string;
+}
+
+export type GameAnswer = MathAnswer | MatchingAnswer | SentenceAnswer | DictationAnswer;
 
 /** POST /api/spaces/{spaceId}/sessions/{sessionId}/attempts body. */
 export interface SubmitAttemptRequest {
@@ -134,17 +142,20 @@ export interface PlayItem {
 export type Playable =
   | { readonly type: 'MATH'; readonly expression: string }
   | { readonly type: 'MATCHING'; readonly left: readonly PlayItem[]; readonly right: readonly PlayItem[] }
-  | { readonly type: 'SENTENCE_ORDERING'; readonly tokens: readonly PlayItem[] };
+  | { readonly type: 'SENTENCE_ORDERING'; readonly tokens: readonly PlayItem[] }
+  | { readonly type: 'DICTATION'; readonly sentence: string };
 
 export type Correction =
   | { readonly type: 'MATH'; readonly expected: number }
   | { readonly type: 'MATCHING'; readonly pairs: readonly { readonly left: string; readonly right: string }[] }
-  | { readonly type: 'SENTENCE_ORDERING'; readonly sentence: string };
+  | { readonly type: 'SENTENCE_ORDERING'; readonly sentence: string }
+  | { readonly type: 'DICTATION'; readonly sentence: string };
 
 export type ParsedContent =
   | { readonly type: 'MATH'; readonly expression: string }
   | { readonly type: 'MATCHING'; readonly pairs: readonly MatchingPair[] }
-  | { readonly type: 'SENTENCE_ORDERING'; readonly sentence: string };
+  | { readonly type: 'SENTENCE_ORDERING'; readonly sentence: string }
+  | { readonly type: 'DICTATION'; readonly sentence: string };
 
 export function isGameType(value: unknown): value is GameType {
   return typeof value === 'string' && (GAME_TYPES as readonly string[]).includes(value);
@@ -206,6 +217,10 @@ export function toPlayable(game: PlayableGameDto | null | undefined): Playable |
         tokens: ids.map((id) => ({ id: str(id), label: str(words[str(id)]) })),
       };
     }
+    case 'DICTATION': {
+      const sentence = str(readProp(content, 'sentence'));
+      return sentence ? { type: 'DICTATION', sentence } : null;
+    }
     default:
       return null;
   }
@@ -228,6 +243,8 @@ export function toCorrection(type: GameType, raw: unknown): Correction | null {
         : null;
     case 'SENTENCE_ORDERING':
       return typeof raw === 'string' ? { type: 'SENTENCE_ORDERING', sentence: raw } : null;
+    case 'DICTATION':
+      return typeof raw === 'string' ? { type: 'DICTATION', sentence: raw } : null;
     default:
       return null;
   }
@@ -263,6 +280,10 @@ export function parseGameContent(type: GameType, content: unknown): ParsedConten
       };
     }
     case 'SENTENCE_ORDERING': {
+      const sentence = typeof value === 'string' ? value : str(readProp(value, 'sentence'));
+      return { type, sentence };
+    }
+    case 'DICTATION': {
       const sentence = typeof value === 'string' ? value : str(readProp(value, 'sentence'));
       return { type, sentence };
     }

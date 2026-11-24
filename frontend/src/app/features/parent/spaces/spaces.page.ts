@@ -17,6 +17,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiError, toApiError } from '../../../core/api/api-error';
 import { EspacesActivite } from '../../../core/models/espaces.models';
 import { ChildSpacesStore } from '../../../core/state/child-spaces.store';
+import { SessionService } from '../../../core/auth/session.service';
 import { AvatarComponent } from '../../../shared/ui/avatar/avatar.component';
 import { EmptyStateComponent } from '../../../shared/ui/feedback/empty-state.component';
 import { ErrorStateComponent } from '../../../shared/ui/feedback/error-state.component';
@@ -67,6 +68,8 @@ export class SpacesPage {
   readonly creer = input<string | null | undefined>(undefined);
 
   protected readonly store = inject(ChildSpacesStore);
+  private readonly session = inject(SessionService);
+  protected readonly demoMode = computed(() => this.session.parent()?.userId === 'parent-demo');
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly injector = inject(Injector);

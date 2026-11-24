@@ -19,7 +19,8 @@ export type GameSummary =
       readonly pairs: readonly { readonly left: string; readonly right: string }[];
       readonly hidden: number;
     }
-  | { readonly type: 'SENTENCE_ORDERING'; readonly sentence: string; readonly words: number };
+  | { readonly type: 'SENTENCE_ORDERING'; readonly sentence: string; readonly words: number }
+  | { readonly type: 'DICTATION'; readonly sentence: string; readonly words: number };
 
 export function gameTitle(game: Pick<GameDto, 'title'>): string {
   const title = game.title?.trim();
@@ -45,6 +46,10 @@ export function summarizeGame(game: Pick<GameDto, 'type' | 'content'>): GameSumm
     case 'SENTENCE_ORDERING':
       return content.sentence
         ? { type: 'SENTENCE_ORDERING', sentence: content.sentence, words: tokenizeSentence(content.sentence).length }
+        : null;
+    case 'DICTATION':
+      return content.sentence
+        ? { type: 'DICTATION', sentence: content.sentence, words: tokenizeSentence(content.sentence).length }
         : null;
   }
 }

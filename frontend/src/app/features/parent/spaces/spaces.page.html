@@ -4,6 +4,9 @@
     title="Mes espaces enfants"
     subtitle="Gérez les espaces de vos enfants et créez-en de nouveaux."
   />
+  @if (demoMode()) {
+    <div class="ek-alert ek-alert--info" role="status">Mode démonstration : les espaces ci-dessous sont des exemples locaux, pas les données d’un compte parent.</div>
+  }
 
   <div class="layout">
     <section class="ek-card ek-card--lg panel" [attr.data-mode]="mode()">

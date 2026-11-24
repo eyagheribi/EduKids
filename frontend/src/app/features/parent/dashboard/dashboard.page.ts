@@ -1,9 +1,8 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { RouterLink } from '@angular/router';
+import { IconComponent } from '../../../shared/ui/icon/icon.component';
 
-// STUB — replaced by the feature implementation.
-@Component({
-  selector: 'ek-dashboard-page',
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `<p class="ek-muted">Tableau de bord (en construction)</p>`,
-})
-export class DashboardPage {}
+@Component({selector:'ek-dashboard-page',imports:[RouterLink,IconComponent],changeDetection:ChangeDetectionStrategy.OnPush,
+template:`<section class="hero"><p class="eyebrow">ESPACE PARENT</p><h1>Bienvenue sur votre tableau de bord ✨</h1><p>Créez les espaces de vos enfants, préparez leurs jeux et suivez leurs progrès.</p></section><div class="grid"><a routerLink="/parent/enfants"><span><ek-icon name="users" [size]="28"/></span><strong>Mes espaces enfants</strong><small>Créer et gérer les espaces de jeu</small><b>Ouvrir →</b></a><a routerLink="/parent/jeux"><span><ek-icon name="gamepad" [size]="28"/></span><strong>Jeux éducatifs</strong><small>Accéder aux activités de vos enfants</small><b>Ouvrir →</b></a><a routerLink="/parent/progres"><span><ek-icon name="chart" [size]="28"/></span><strong>Suivi des progrès</strong><small>Consulter l’historique et les résultats</small><b>Ouvrir →</b></a></div><section class="tip"><span>💡</span><div><strong>Un conseil pour commencer</strong><p>Créez un espace enfant et sélectionnez les catégories adaptées. Vous pourrez ensuite y ajouter vos propres jeux.</p></div></section>`,
+styles:`:host{display:block;max-width:1100px;margin:auto}.hero{padding:2.5rem 0 2rem}.eyebrow{color:#7e5eb0;font-weight:850;letter-spacing:.1em;font-size:.75rem}.hero h1{font-size:clamp(2rem,5vw,3rem);color:#30283d;margin:.4rem 0}.hero>p:last-child{color:#746e7e;font-size:1.05rem}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:1rem}.grid a{display:flex;flex-direction:column;align-items:flex-start;gap:.7rem;background:#fff;padding:1.4rem;border:1px solid #eee8f5;border-radius:1.3rem;text-decoration:none;color:#393146;box-shadow:0 8px 25px #3322440c;transition:transform .2s}.grid a:hover{transform:translateY(-4px)}.grid a>span{color:#7758ad;background:#f1eafd;border-radius:.9rem;padding:.7rem}.grid strong{font-size:1.15rem}.grid small{color:#777181}.grid b{margin-top:.6rem;color:#7655ad}.tip{display:flex;gap:1rem;align-items:flex-start;margin-top:1.5rem;background:#f4effc;padding:1.25rem;border-radius:1rem;color:#6f677e}.tip>span{font-size:1.5rem}.tip strong{color:#413650}.tip p{margin:.3rem 0}`})
+export class DashboardPage{}

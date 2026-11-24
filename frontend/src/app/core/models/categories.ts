@@ -56,7 +56,7 @@ export const CATEGORIES: readonly CategoryDef[] = [
     childLabel: 'Phrases',
     description: 'Une phrase mélangée que l’enfant remet dans le bon ordre, mot par mot.',
     childDescription: 'Remets les mots dans le bon ordre !',
-    espacesKey: null,
+    espacesKey: 'Ordonnancement',
     gameType: 'SENTENCE_ORDERING',
     tone: 'blue',
   },
@@ -64,10 +64,10 @@ export const CATEGORIES: readonly CategoryDef[] = [
     id: 'dictee',
     label: 'Dictée',
     childLabel: 'Dictée',
-    description: 'Écouter une phrase et l’écrire. Activable dans Espaces.Api, mais aucun moteur de dictée n’existe encore.',
+    description: 'Écouter une phrase et l’écrire.',
     childDescription: 'Écoute et écris !',
     espacesKey: 'Dictee',
-    gameType: null,
+    gameType: 'DICTATION',
     tone: 'yellow',
   },
 ];
@@ -133,4 +133,5 @@ export const GAME_TYPE_LABELS: Readonly<Record<GameType, string>> = {
   MATH: 'Mathématiques',
   MATCHING: 'Association',
   SENTENCE_ORDERING: 'Ordonnancement de mots',
+  DICTATION: 'Dictée',
 };

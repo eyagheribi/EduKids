@@ -87,6 +87,18 @@ function sentenceTokens(content: unknown): string[] {
   return tokens;
 }
 
+function dictationSentence(content: unknown): string {
+  const sentence = str(readProp(content, 'sentence'))?.trim();
+  if (!sentence || sentence.split(/\s+/).length < 2 || sentence.length > 500) {
+    throw new DemoDomainError('La dictée doit contenir une phrase de 2 à 500 caractères.');
+  }
+  return sentence;
+}
+
+function normalizeDictation(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('fr-FR').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
 /* ───────────── Public API ───────────── */
 
 export function validateContent(type: GameType, content: unknown): void {
@@ -99,6 +111,9 @@ export function validateContent(type: GameType, content: unknown): void {
       return;
     case 'SENTENCE_ORDERING':
       sentenceTokens(content);
+      return;
+    case 'DICTATION':
+      dictationSentence(content);
       return;
   }
 }
@@ -143,6 +158,8 @@ export function generatePlay(type: GameType, content: unknown): unknown {
         CorrectOrder: tokens,
       };
     }
+    case 'DICTATION':
+      return { sentence: dictationSentence(content) };
   }
 }
 
@@ -195,6 +212,13 @@ export function evaluate(type: GameType, content: unknown, answer: unknown, play
       const correct = submitted.length === order.length && submitted.every((t, i) => t === order[i]);
       const score = correct ? words.length : submitted.length === words.length ? words.length - 1 : 0;
       return { correct, score, maxScore: words.length, correction: words.join(' ') };
+    }
+    case 'DICTATION': {
+      const expected = dictationSentence(content);
+      const submitted = str(readProp(answer, 'text'))?.trim();
+      if (!submitted) throw new DemoDomainError('La réponse de dictée ne peut pas être vide.');
+      const correct = normalizeDictation(submitted) === normalizeDictation(expected);
+      return { correct, score: correct ? 1 : 0, maxScore: 1, correction: expected };
     }
   }
 }

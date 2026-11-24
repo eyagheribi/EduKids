@@ -46,6 +46,7 @@ const TYPE_TO_ACTIVITE: Readonly<Record<GameType, EspacesActivite | null>> = {
   MATH: 'Maths',
   MATCHING: 'Association',
   SENTENCE_ORDERING: null, // cannot be activated in Espaces.Api: always available in demo mode
+  DICTATION: 'Dictee',
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -193,5 +194,7 @@ function fakeAnswer(game: DemoGame, correct: boolean, n: number): unknown {
       return { matches: Object.fromEntries((content.pairs ?? []).map(() => [uuid(), uuid()])) };
     case 'SENTENCE_ORDERING':
       return { tokens: tokenizeSentence(content.sentence ?? '').map(() => uuid()) };
+    case 'DICTATION':
+      return { text: correct ? (content.sentence ?? '') : '' };
   }
 }

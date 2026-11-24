@@ -6,6 +6,8 @@ import { SessionService } from '../../core/auth/session.service';
 import { APP_CONFIG } from '../../core/config/app-config';
 import { categoriesForSpace } from '../../core/models/categories';
 import { ChildOwnSpace, parseActivites, PersonnageResponse } from '../../core/models/espaces.models';
+import { DemoDataService } from '../../core/demo/demo-data.service';
+import { of } from 'rxjs';
 
 /**
  * State of the signed-in child (GET /mon-espace). Provided by ChildShellComponent; every child
@@ -15,8 +17,10 @@ import { ChildOwnSpace, parseActivites, PersonnageResponse } from '../../core/mo
 @Injectable()
 export class ChildContext {
   private readonly api = inject(EspacesApiService);
+  private readonly demoData = inject(DemoDataService);
   private readonly session = inject(SessionService);
   readonly gamesMode = inject(APP_CONFIG).integrations.games;
+  readonly demoMode = computed(() => this.spaceId() === 'space-demo');
 
   private readonly spaceState = signal<ChildOwnSpace | null>(null);
   private readonly loadingState = signal(false);
@@ -35,6 +39,12 @@ export class ChildContext {
 
   load(force = false): void {
     if (this.spaceState() && !force) return;
+    if (this.demoMode()) {
+      this.spaceState.set({ spaceId: 'space-demo', nomEnfant: 'Adam', avatar: '', personnagePrefere: 'hibou', activites: ['Maths', 'Association', 'Dictee'] });
+      this.loadingState.set(false);
+      if (!this.demoData.count('space-demo').games) this.demoData.seed('space-demo', ['Maths', 'Association', 'Dictee']);
+      return;
+    }
     this.loadingState.set(true);
     this.errorState.set(null);
     this.api.monEspace().subscribe({
@@ -58,6 +68,10 @@ export class ChildContext {
 
   /** PUT /mon-espace/personnage. */
   chooseCharacter(key: string): Observable<PersonnageResponse> {
+    if (this.demoMode()) {
+      this.spaceState.update((s) => s ? { ...s, personnagePrefere: key } : s);
+      return of({ personnagePrefere: key });
+    }
     return this.api.choisirPersonnage(key).pipe(
       tap((res) => this.spaceState.update((s) => (s ? { ...s, personnagePrefere: res.personnagePrefere } : s))),
     );

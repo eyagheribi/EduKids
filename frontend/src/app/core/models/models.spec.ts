@@ -81,23 +81,23 @@ describe('Espaces.Api helpers', () => {
 });
 
 describe('categories mapping', () => {
-  it('maps Espaces activities onto engines and flags gaps', () => {
+  it('maps every enabled Espaces activity onto its available engine', () => {
     const demo = categoriesForSpace(['Maths', 'Dictee'], 'demo');
     expect(demo.map((c) => [c.category.id, c.availability])).toEqual([
       ['maths', 'active'],
-      ['ordonnancement', 'demo-only'],
-      ['dictee', 'no-engine'],
+      ['dictee', 'active'],
     ]);
     const api = categoriesForSpace(['Association'], 'api');
     expect(api.map((c) => c.category.id)).toEqual(['association']);
   });
 
   it('lists activatable categories that are still disabled', () => {
-    expect(inactiveCategories(['Maths']).map((c) => c.espacesKey)).toEqual(['Association', 'Dictee']);
+    expect(inactiveCategories(['Maths']).map((c) => c.espacesKey)).toEqual(['Association', 'Ordonnancement', 'Dictee']);
   });
 
   it('finds categories from engine types', () => {
     expect(categoryForGameType('MATCHING')?.id).toBe('association');
     expect(categoryForGameType('SENTENCE_ORDERING')?.id).toBe('ordonnancement');
+    expect(categoryForGameType('DICTATION')?.id).toBe('dictee');
   });
 });
