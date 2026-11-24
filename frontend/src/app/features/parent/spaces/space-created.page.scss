@@ -1,0 +1,274 @@
+@use 'mixins' as m;
+
+.page {
+  justify-items: center;
+
+  > nav {
+    justify-self: stretch;
+  }
+}
+
+.status-card {
+  width: min(100%, 760px);
+}
+
+.back-link {
+  margin-top: 1rem;
+}
+
+.hero {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 1rem;
+  width: min(100%, 780px);
+  overflow: hidden;
+  padding-top: clamp(1.75rem, 3vw, 2.5rem);
+  text-align: center;
+  background:
+    radial-gradient(420px 220px at 50% -40px, rgba(196, 169, 246, 0.35), transparent 70%),
+    radial-gradient(260px 160px at 100% 100%, rgba(143, 215, 158, 0.18), transparent 70%),
+    #fff;
+}
+
+/* ───────────── Celebration ───────────── */
+
+.confetti {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+
+  i {
+    position: absolute;
+    top: -16px;
+    width: 9px;
+    height: 14px;
+    border-radius: 3px;
+    opacity: 0;
+    animation-name: ek-confetti-fall;
+    animation-timing-function: cubic-bezier(0.25, 0.6, 0.5, 1);
+    animation-fill-mode: both;
+    animation-iteration-count: 1;
+  }
+
+  i.round {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+}
+
+.hero__mascot {
+  position: relative;
+  display: grid;
+  place-items: center;
+  animation: ek-pop 520ms var(--ek-ease-bounce) both;
+
+  ek-owl {
+    position: relative;
+    animation: ek-float 4.5s ease-in-out 600ms infinite;
+  }
+}
+
+.halo {
+  position: absolute;
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--ek-purple-100), rgba(239, 231, 254, 0));
+}
+
+.done-chip {
+  animation: ek-fade-up 360ms var(--ek-ease) 160ms both;
+}
+
+.hero__title {
+  display: inline-flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.2rem;
+  max-width: 100%;
+  font-size: clamp(1.7rem, 1.2rem + 1.8vw, 2.4rem);
+  overflow-wrap: anywhere;
+  outline: none;
+  animation: ek-fade-up 380ms var(--ek-ease) 220ms both;
+
+  .spark {
+    flex: none;
+    margin-top: -0.6rem;
+  }
+}
+
+.code-block {
+  display: grid;
+  justify-items: center;
+  gap: 0.75rem;
+  max-width: 560px;
+  animation: ek-fade-up 380ms var(--ek-ease) 300ms both;
+
+  ek-access-code {
+    animation: ek-pop 480ms var(--ek-ease-bounce) 420ms both;
+  }
+}
+
+.explain {
+  color: var(--ek-text);
+  font-size: 1.05rem;
+  font-weight: 600;
+
+  strong {
+    color: var(--ek-ink);
+    white-space: nowrap;
+  }
+}
+
+.small {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.cats {
+  display: grid;
+  justify-items: center;
+  gap: 0.45rem;
+
+  &__label {
+    color: var(--ek-text-soft);
+    font-size: 0.85rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  &__list {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.45rem;
+  }
+}
+
+/* ───────────── Avatar quick pick ───────────── */
+
+.avatar-pick {
+  display: grid;
+  justify-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 1.1rem 1rem 1rem;
+  border-radius: var(--ek-radius-lg);
+  background: var(--ek-bg-lavender);
+
+  &__label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    color: var(--ek-ink);
+    font-weight: 800;
+
+    ek-icon {
+      color: var(--ek-purple-600);
+    }
+  }
+
+  &__list {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.55rem;
+  }
+}
+
+.avatar-opt {
+  @include m.reset-button;
+  position: relative;
+  display: inline-flex;
+  padding: 3px;
+  border: 3px solid transparent;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: var(--ek-shadow-xs);
+  transition:
+    transform var(--ek-duration) var(--ek-ease-bounce),
+    border-color var(--ek-duration) var(--ek-ease),
+    box-shadow var(--ek-duration) var(--ek-ease);
+
+  &:hover:not(:disabled) {
+    transform: translateY(-3px) scale(1.05);
+    box-shadow: var(--ek-shadow-sm);
+  }
+
+  &:focus-visible {
+    @include m.focus-ring(2px);
+  }
+
+  &:disabled {
+    cursor: wait;
+  }
+
+  &.is-selected {
+    border-color: var(--ek-green-400);
+    box-shadow: 0 0 0 4px rgba(85, 192, 106, 0.2);
+  }
+
+  &__check {
+    position: absolute;
+    right: -4px;
+    bottom: -2px;
+    display: grid;
+    place-items: center;
+    width: 1.35rem;
+    height: 1.35rem;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    background: var(--ek-green-500);
+    color: #fff;
+  }
+
+  &.is-saving &__check ek-icon {
+    animation: ek-spin 0.9s linear infinite;
+  }
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.85rem;
+  margin-top: 0.4rem;
+
+  @include m.down(sm) {
+    flex-direction: column;
+    width: 100%;
+
+    .ek-btn {
+      width: 100%;
+      white-space: normal;
+    }
+  }
+}
+
+/* ───────────── Loading ───────────── */
+
+.sk-owl {
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+}
+
+.sk-title {
+  width: min(380px, 80%);
+  height: 2.2rem;
+}
+
+.sk-code {
+  width: min(320px, 70%);
+  height: 3.6rem;
+  border-radius: var(--ek-radius-pill);
+}
+
+.sk-line {
+  width: min(460px, 90%);
+  height: 1rem;
+}
