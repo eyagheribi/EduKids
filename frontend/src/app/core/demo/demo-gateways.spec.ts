@@ -120,18 +120,19 @@ describe('Demo gateways (Activites/Suivi rules)', () => {
     const left = readProp(ms.game?.content, 'Left') as { Id: string; Left: string }[];
     const right = readProp(ms.game?.content, 'Right') as { Id: string; Left: string }[];
     expect(left).toHaveLength(2);
+    await expect(
+      firstValueFrom(games.submitAttempt(SPACE, ms.id, { idempotencyKey: 'm1', answer: { matches: {} } })),
+    ).rejects.toMatchObject({ message: 'Soumettez une association pour chaque paire.' });
+
     // Deliberately wrong: pair every left item with the same-index right item, then check score bounds.
     const wrong = await firstValueFrom(
       games.submitAttempt(SPACE, ms.id, {
-        idempotencyKey: 'm1',
+        idempotencyKey: 'm2',
         answer: { matches: { [left[0]!.Id]: right[0]!.Id, [left[1]!.Id]: right[1]!.Id } },
       }),
     );
     expect(wrong.maxScore).toBe(2);
     expect([0, 2]).toContain(wrong.score);
-    await expect(
-      firstValueFrom(games.submitAttempt(SPACE, ms.id, { idempotencyKey: 'm2', answer: { matches: {} } })),
-    ).rejects.toMatchObject({ message: 'Soumettez une association pour chaque paire.' });
 
     const sentence = await firstValueFrom(
       games.createGame(SPACE, { type: 'SENTENCE_ORDERING', title: null, content: { sentence: 'Le chat dort.' } }),
