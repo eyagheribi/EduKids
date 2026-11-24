@@ -72,6 +72,8 @@ interface PendingAttempt {
   readonly answer: GameAnswer;
 }
 
+type SpeechState = 'idle' | 'speaking' | 'unavailable' | 'error';
+
 @Component({
   selector: 'ek-game-player-page',
   imports: [
@@ -113,8 +115,11 @@ export class GamePlayerPage {
   protected readonly starsAwardedThisSession = signal(false);
   protected readonly mathAnswer = signal('');
   protected readonly textAnswer = signal('');
+  protected readonly speechState = signal<SpeechState>('idle');
+  protected readonly speechMessage = signal('');
   protected readonly matchingState = signal<MatchingState>(EMPTY_MATCHING);
   protected readonly sentenceState = signal<SentenceState>(EMPTY_SENTENCE);
+  private speechRunId = 0;
 
   protected readonly playable = computed(() => toPlayable(this.session()?.game));
   protected readonly orderedTokens = computed(() => {
@@ -195,6 +200,9 @@ export class GamePlayerPage {
   ];
 
   constructor() {
+    this.destroyRef.onDestroy(() => {
+      if (this.speechState() === 'speaking') this.cancelSpeech('');
+    });
     this.startOrResume();
   }
 
@@ -333,17 +341,62 @@ export class GamePlayerPage {
   }
 
   protected speak(sentence: string): void {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-      this.statusMessage.set('La lecture audio n’est pas disponible dans ce navigateur.');
+    const synthesis = typeof window === 'undefined' ? null : window.speechSynthesis;
+    if (
+      !synthesis ||
+      typeof synthesis.speak !== 'function' ||
+      typeof SpeechSynthesisUtterance === 'undefined'
+    ) {
+      this.speechState.set('unavailable');
+      this.speechMessage.set('La lecture audio n’est pas disponible dans ce navigateur.');
       return;
     }
-    window.speechSynthesis.cancel();
+
+    if (this.speechState() === 'speaking') {
+      this.cancelSpeech('Lecture arrêtée. Tu peux réécouter la phrase.');
+      return;
+    }
+
+    const runId = ++this.speechRunId;
+    synthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(sentence);
     utterance.lang = 'fr-FR';
-    window.speechSynthesis.speak(utterance);
+    utterance.onstart = () => {
+      if (runId === this.speechRunId) {
+        this.speechState.set('speaking');
+        this.speechMessage.set('Écoute bien la phrase.');
+      }
+    };
+    utterance.onend = () => {
+      if (runId === this.speechRunId) {
+        this.speechState.set('idle');
+        this.speechMessage.set('La lecture est terminée. Tu peux réécouter.');
+      }
+    };
+    utterance.onerror = (event) => {
+      if (runId !== this.speechRunId) return;
+      if (event.error === 'canceled' || event.error === 'interrupted') {
+        this.speechState.set('idle');
+        this.speechMessage.set('La lecture a été interrompue.');
+        return;
+      }
+      this.speechState.set('error');
+      this.speechMessage.set(`La lecture audio a échoué : ${event.error}.`);
+    };
+    this.speechState.set('speaking');
+    this.speechMessage.set('Préparation de la lecture…');
+    try {
+      synthesis.speak(utterance);
+    } catch (error: unknown) {
+      if (runId !== this.speechRunId) return;
+      this.speechState.set('error');
+      this.speechMessage.set(`La lecture audio a échoué : ${errorMessage(error)}`);
+    }
   }
 
   private startOrResume(): void {
+    if (this.speechState() === 'speaking') this.cancelSpeech('');
+    else this.speechMessage.set('');
     if (!this.gameId || !this.ctx.spaceId()) {
       this.loading.set(false);
       this.screen.set({ kind: 'missing' });
@@ -527,6 +580,14 @@ export class GamePlayerPage {
         ? toSentenceAnswer(state)
         : null,
     );
+  }
+
+  private cancelSpeech(message: string): void {
+    this.speechRunId++;
+    const synthesis = typeof window === 'undefined' ? null : window.speechSynthesis;
+    if (synthesis && typeof synthesis.cancel === 'function') synthesis.cancel();
+    this.speechState.set('idle');
+    this.speechMessage.set(message);
   }
 
   private formatCorrection(correction: Correction | null): string {

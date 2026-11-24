@@ -199,8 +199,8 @@
 .engine--dictation { display: grid; justify-items: center; gap: .8rem; }
 .audio-controls { display: grid; justify-items: center; gap: .4rem; }
 .audio-button { display: inline-flex; align-items: center; justify-content: center; gap: .65rem; min-width: 230px; padding: .9rem 1.5rem; border: 2px solid #e5d7fb; border-radius: 99px; background: linear-gradient(135deg, #f8f1ff, #eee3ff); color: #6b36b2; font: 850 1.05rem var(--ek-font-display); box-shadow: 0 4px 0 #d9c8f1; cursor: pointer; }
-.audio-button:hover { transform: translateY(-1px); background: #efe4ff; }
-.audio-hint { margin: 0; color: #766c83; font-size: .8rem; text-align: center; }
+.audio-button--speaking { border-color: #b8e4bf; background: linear-gradient(135deg, #f1fff2, #e0f6e4); color: #287c39; }
+.audio-hint { margin: 0; color: #766c83; text-align: center; }
 
 .attempt-feedback, .submit-error, .status-message {
   width: min(100%, 760px);

@@ -307,10 +307,23 @@
           <section class="engine engine--dictation" aria-label="Jeu de dictée">
             <ek-illustration name="child-headphones" [width]="170" [eager]="true" />
             <div class="audio-controls">
-              <button type="button" class="audio-button" (click)="speak(game.sentence)">
-                <ek-icon name="volume" [size]="30" /> Écouter la phrase
+              <button
+                type="button"
+                class="audio-button"
+                [class.audio-button--speaking]="speechState() === 'speaking'"
+                [attr.aria-pressed]="speechState() === 'speaking'"
+                (click)="speak(game.sentence)"
+              >
+                <ek-icon name="volume" [size]="30" />
+                @if (speechState() === 'speaking') { Arrêter la lecture } @else { Écouter la phrase }
               </button>
-              <p class="audio-hint">Tu peux réécouter autant de fois que tu veux.</p>
+              <p
+                class="audio-hint"
+                [class.audio-hint--error]="speechState() === 'error' || speechState() === 'unavailable'"
+                aria-live="polite"
+              >
+                {{ speechMessage() || 'Tu peux réécouter autant de fois que tu veux.' }}
+              </p>
             </div>
             <label class="answer-label" for="dictation-answer">Écris ce que tu entends</label>
             <textarea
