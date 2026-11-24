@@ -15,5 +15,8 @@
     <PackageReference Include="RabbitMQ.Client" Version="7.1.2" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\EduKids.Security\EduKids.Security.csproj" />
+  </ItemGroup>
 
 </Project>

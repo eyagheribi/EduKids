@@ -12,5 +12,8 @@
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.8" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.*" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\EduKids.Security\EduKids.Security.csproj" />
+  </ItemGroup>
 
 </Project>

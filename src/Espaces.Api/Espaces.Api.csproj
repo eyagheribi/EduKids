@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\EduKids.Contracts\EduKids.Contracts.csproj" />
+    <ProjectReference Include="..\EduKids.Security\EduKids.Security.csproj" />
   </ItemGroup>
 
 </Project>
