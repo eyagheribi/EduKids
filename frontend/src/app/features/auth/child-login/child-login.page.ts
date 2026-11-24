@@ -1,9 +1,19 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { Router, RouterLink } from '@angular/router';
+import { AuthFlowsService } from '../../../core/auth/auth-flows.service';
+import { SessionService } from '../../../core/auth/session.service';
+import { toApiError } from '../../../core/api/api-error';
+import { LogoComponent } from '../../../shared/ui/brand/logo.component';
+import { IconComponent } from '../../../shared/ui/icon/icon.component';
 
-// STUB — replaced by the feature implementation.
-@Component({
-  selector: 'ek-child-login-page',
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `<p class="ek-muted">Connexion enfant (en construction)</p>`,
-})
-export class ChildLoginPage {}
+@Component({selector:'ek-child-login-page',imports:[ReactiveFormsModule,RouterLink,LogoComponent,IconComponent],changeDetection:ChangeDetectionStrategy.OnPush,
+ template:`<main class="child-page"><header><a routerLink="/"><ek-logo size="lg"/></a><a class="help" routerLink="/aide"><ek-icon name="help"/> Aide</a></header><section class="card"><div class="owl">🦉</div><span class="badge">ESPACE ENFANT</span><h1>Entre ton code !</h1><p>Demande à ton parent le code de ton espace pour commencer à jouer.</p>@if(message()){<div class="alert" role="alert">{{message()}}</div>}<form [formGroup]="form" (ngSubmit)="submit()"><label for="code">Ton code d’accès</label><input id="code" formControlName="code" maxlength="8" autocomplete="one-time-code" placeholder="A7K9P2" (input)="normalize()"><button [disabled]="busy()">{{busy()?'On vérifie…':'C’est parti !'}} <span>→</span></button></form><small>Le code comporte 6 lettres ou chiffres.</small><button class="sample" type="button" (click)="demo()">Essayer la démo avec le code 123456</button><a class="parent" routerLink="/parent/connexion">Tu es un parent ? Connexion parent</a></section></main>`,
+ styles:[`:host{display:block;min-height:100vh;background:radial-gradient(ellipse at 50% 45%,white 0,#f4fff2 70%,#e9f8e6 100%)}.child-page{min-height:100vh;max-width:1200px;margin:auto;padding:22px 36px}.child-page header{display:flex;justify-content:space-between;align-items:center}.child-page header a{text-decoration:none}.help{display:flex;align-items:center;gap:8px;color:#2a763b;font-weight:800}.card{width:min(100%,560px);margin:6vh auto 0;background:#fff;border:2px solid #d9f2da;border-radius:32px;padding:38px clamp(24px,6vw,64px);box-shadow:0 24px 65px #25873818;text-align:center}.owl{font-size:5rem;line-height:1}.badge{display:inline-block;margin-top:12px;padding:5px 13px;border-radius:99px;background:#eaf8e8;color:#298541;font-size:.75rem;font-weight:900;letter-spacing:.08em}.card h1{font-size:2.7rem;margin:12px 0}.card>p{font-size:1.08rem;color:#625a7d;font-weight:700;margin-bottom:28px}.card form{text-align:left}.card label{display:block;font-weight:850;color:#285932}.card input{width:100%;text-align:center;letter-spacing:.25em;text-transform:uppercase;font-family:var(--ek-font-display);font-size:1.8rem;font-weight:700;margin:9px 0 16px;padding:14px;border:2px solid #d9e9d7;border-radius:16px;background:#fbfffa}.card input:focus{outline:3px solid #bceac1;border-color:#55b967}.card form button{width:100%;border:0;border-radius:99px;padding:14px;background:linear-gradient(100deg,#54b963,#26883c);color:white;font-family:var(--ek-font-display);font-size:1.25rem;font-weight:800;box-shadow:0 5px #1d7130}.card form button:disabled{opacity:.7}.card small{display:block;margin:18px;color:#746c88}.sample{display:block;width:100%;border:1px dashed #99d69f;border-radius:14px;padding:11px;background:#f5fff3;color:#347343;font-weight:800}.parent{display:block;margin-top:20px}.alert{margin:12px 0;padding:12px;background:#fff0f0;color:#a5222a;border-radius:12px;font-weight:700}@media(max-width:600px){.child-page{padding:16px}.card{margin-top:5vh;padding:30px 22px}.card h1{font-size:2.2rem}}
+ `]})
+export class ChildLoginPage{
+ private readonly fb=inject(NonNullableFormBuilder);private readonly auth=inject(AuthFlowsService);private readonly session=inject(SessionService);private readonly router=inject(Router);protected readonly busy=signal(false);protected readonly message=signal('');protected readonly form=this.fb.group({code:['',[Validators.required,Validators.minLength(6)]]});
+ protected normalize():void{const c=this.form.controls.code;c.setValue(c.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6),{emitEvent:false});}
+ protected submit():void{this.message.set('');if(this.form.invalid){this.form.markAllAsTouched();this.message.set('Entre les 6 caractères du code fourni par ton parent.');return;}this.busy.set(true);this.auth.enterChildSpace(this.form.controls.code.value).subscribe({next:()=>{this.busy.set(false);void this.router.navigateByUrl('/enfant');},error:e=>{this.busy.set(false);this.message.set(toApiError(e,'espaces').message);}});}
+ protected demo():void{const enc=(v:unknown)=>btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(v)))).replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_');const payload={sub:'space-demo',espaceId:'space-demo',role:'Enfant',exp:Math.floor(Date.now()/1000)+3600};this.session.startChildSession(`${enc({alg:'HS256',typ:'JWT'})}.${enc(payload)}.demo`,'Adam');void this.router.navigateByUrl('/enfant');}
+}

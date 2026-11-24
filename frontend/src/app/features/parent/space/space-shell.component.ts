@@ -12,7 +12,6 @@ import { EmptyStateComponent } from '../../../shared/ui/feedback/empty-state.com
 import { ErrorStateComponent } from '../../../shared/ui/feedback/error-state.component';
 import { IconComponent } from '../../../shared/ui/icon/icon.component';
 import { espaceDe, lEspaceDe } from '../spaces/french';
-import { EditSpaceDialog, EditSpaceDialogData } from './dialogs/edit-space.dialog';
 import { SpaceContext } from './space-context';
 
 /**
@@ -65,15 +64,7 @@ export class SpaceShellComponent {
   }
 
   protected openEdit(): void {
-    const space = this.ctx.space();
-    if (!space) return;
-    const ref = this.dialogs.open<ChildSpace, EditSpaceDialogData>(EditSpaceDialog, {
-      space,
-      save: (request) => this.ctx.update(request),
-    });
-    ref.closed.subscribe((updated) => {
-      if (updated) this.toast.success(`${capitalize(lEspaceDe(updated.nomEnfant))} a été mis à jour.`);
-    });
+    this.toast.info('La modification de l’espace sera bientôt disponible.');
   }
 
   protected async confirmDelete(): Promise<void> {

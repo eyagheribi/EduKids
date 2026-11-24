@@ -49,18 +49,7 @@ interface DistributionSegment {
 @Component({
   selector: 'ek-progress-tab-page',
   imports: [
-    RouterLink,
     IconComponent,
-    OwlComponent,
-    IllustrationComponent,
-    CategoryIconComponent,
-    ProgressBarComponent,
-    StatCardComponent,
-    DemoBannerComponent,
-    EmptyStateComponent,
-    ErrorStateComponent,
-    SessionHistoryComponent,
-    SuccessRateChartComponent,
   ],
   providers: [provideProgressSpace()],
   changeDetection: ChangeDetectionStrategy.OnPush,

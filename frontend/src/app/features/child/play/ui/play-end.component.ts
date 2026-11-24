@@ -35,7 +35,7 @@ export type PlayEndTone = 'success' | 'failed' | 'unfinished' | 'rest' | 'missin
         </span>
       </div>
       <div class="content">
-        <h1 class="title" [id]="headingId" tabindex="-1" #heading>
+        <h1 class="title" [id]="headingId" tabindex="-1" #headingElement>
           {{ heading() }}
           @if (tone() === 'success') {
             <ek-sparkles class="title__sparkles" [size]="38" />
@@ -56,7 +56,7 @@ export class PlayEndComponent {
 
   private static counter = 0;
   protected readonly headingId = `ek-play-end-${++PlayEndComponent.counter}`;
-  private readonly headingRef = viewChild.required<ElementRef<HTMLElement>>('heading');
+  private readonly headingRef = viewChild.required<ElementRef<HTMLElement>>('headingElement');
 
   constructor() {
     afterNextRender(() => this.headingRef().nativeElement.focus({ preventScroll: false }));
