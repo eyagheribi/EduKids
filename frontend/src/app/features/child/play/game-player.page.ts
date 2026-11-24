@@ -31,6 +31,16 @@ import {
   type KeypadKey,
 } from './math/math-answer';
 import {
+  EMPTY_MATCHING,
+  isMatchingComplete,
+  pairColor as colorForPair,
+  pairOf,
+  tapItem,
+  toMatchingAnswer,
+  type MatchSide,
+  type MatchingState,
+} from './matching/matching-state';
+import {
   AttemptFeedback,
   attemptsLeft,
   endScreenForSession,
@@ -92,7 +102,7 @@ export class GamePlayerPage {
   protected readonly starsAwardedThisSession = signal(false);
   protected readonly mathAnswer = signal('');
   protected readonly textAnswer = signal('');
-  protected readonly matches = signal<Record<string, string>>({});
+  protected readonly matchingState = signal<MatchingState>(EMPTY_MATCHING);
   protected readonly orderedIds = signal<readonly string[]>([]);
 
   protected readonly playable = computed(() => toPlayable(this.session()?.game));
@@ -201,36 +211,28 @@ export class GamePlayerPage {
     this.setAnswer(text ? { text } : null);
   }
 
-  protected onMatchesChange(): void {
-    const mapping = this.matches();
-    const count = Object.keys(mapping).length;
-    const values = Object.values(mapping);
+  protected matchPair(side: MatchSide, id: string) {
+    return pairOf(this.matchingState(), side, id) ?? null;
+  }
+
+  protected pairColor(slot: number) {
+    return colorForPair(slot);
+  }
+
+  protected tapMatch(side: MatchSide, id: string): void {
+    const next = tapItem(this.matchingState(), side, id);
+    this.matchingState.set(next);
     const game = this.playable();
     this.setAnswer(
-      game?.type === 'MATCHING' &&
-        count === game.left.length &&
-        new Set(values).size === values.length
-        ? { matches: { ...mapping } }
+      game?.type === 'MATCHING' && isMatchingComplete(next, game.left.map((item) => item.id))
+        ? toMatchingAnswer(next)
         : null,
     );
   }
 
-  protected selectMatch(leftId: string, rightId: string): void {
-    const current = this.matches();
-    const next = Object.fromEntries(Object.entries(current).filter(([id]) => id !== leftId));
-    if (rightId) {
-      for (const [id, value] of Object.entries(next)) {
-        if (value === rightId) delete next[id];
-      }
-      next[leftId] = rightId;
-    }
-    this.matches.set(next);
-    this.onMatchesChange();
-  }
-
   protected resetMatches(): void {
-    this.matches.set({});
-    this.onMatchesChange();
+    this.matchingState.set(EMPTY_MATCHING);
+    this.setAnswer(null);
   }
 
   protected moveToken(id: string): void {
@@ -338,7 +340,7 @@ export class GamePlayerPage {
     this.answer.set(null);
     this.mathAnswer.set('');
     this.textAnswer.set('');
-    this.matches.set({});
+    this.matchingState.set(EMPTY_MATCHING);
     this.orderedIds.set([]);
     this.feedback.set(null);
     this.pendingAttempt = null;

@@ -188,25 +188,55 @@
           </section>
         } @else if (game.type === 'MATCHING') {
           <section class="engine engine--matching" aria-label="Jeu d’association">
-            <p class="engine-instruction">Choisis un mot à gauche, puis son partenaire à droite.</p>
-            <div class="matching-list">
-              @for (item of game.left; track item.id) {
-                <label class="match-row">
-                  <span>{{ item.label }}</span>
-                  <select
-                    [ngModel]="matches()[item.id] || ''"
-                    [ngModelOptions]="{ standalone: true }"
+            <p class="engine-instruction">Touche un mot de chaque colonne pour les associer.</p>
+            <p class="matching-progress" aria-live="polite">
+              {{ matchingState().pairs.length }} / {{ game.left.length }} associations choisies
+            </p>
+            <div class="matching-board">
+              <section class="matching-column" aria-label="Mots à associer">
+                <h3>À associer</h3>
+                @for (item of game.left; track item.id) {
+                  @let pair = matchPair('left', item.id);
+                  <button
+                    type="button"
+                    class="match-item"
+                    [class.match-item--selected]="matchingState().selected?.side === 'left' && matchingState().selected?.id === item.id"
+                    [class.match-item--paired]="pair !== null"
+                    [style.border-color]="pair ? pairColor(pair.slot).main : null"
+                    [style.background-color]="pair ? pairColor(pair.slot).soft : null"
+                    [style.color]="pair ? pairColor(pair.slot).ink : null"
+                    [attr.aria-pressed]="matchingState().selected?.side === 'left' && matchingState().selected?.id === item.id"
+                    [attr.aria-label]="item.label + (pair ? ', association ' + pair.slot : '')"
                     [disabled]="busy() || retryPending()"
-                    (ngModelChange)="selectMatch(item.id, $event)"
-                    [attr.aria-label]="'Partenaire de ' + item.label"
+                    (click)="tapMatch('left', item.id)"
                   >
-                    <option value="">Choisir un mot…</option>
-                    @for (right of game.right; track right.id) {
-                      <option [value]="right.id">{{ right.label }}</option>
-                    }
-                  </select>
-                </label>
-              }
+                    @if (pair) { <span class="match-number">{{ pair.slot }}</span> }
+                    {{ item.label }}
+                  </button>
+                }
+              </section>
+              <section class="matching-column" aria-label="Mots partenaires">
+                <h3>Partenaires</h3>
+                @for (item of game.right; track item.id) {
+                  @let pair = matchPair('right', item.id);
+                  <button
+                    type="button"
+                    class="match-item"
+                    [class.match-item--selected]="matchingState().selected?.side === 'right' && matchingState().selected?.id === item.id"
+                    [class.match-item--paired]="pair !== null"
+                    [style.border-color]="pair ? pairColor(pair.slot).main : null"
+                    [style.background-color]="pair ? pairColor(pair.slot).soft : null"
+                    [style.color]="pair ? pairColor(pair.slot).ink : null"
+                    [attr.aria-pressed]="matchingState().selected?.side === 'right' && matchingState().selected?.id === item.id"
+                    [attr.aria-label]="item.label + (pair ? ', association ' + pair.slot : '')"
+                    [disabled]="busy() || retryPending()"
+                    (click)="tapMatch('right', item.id)"
+                  >
+                    @if (pair) { <span class="match-number">{{ pair.slot }}</span> }
+                    {{ item.label }}
+                  </button>
+                }
+              </section>
             </div>
             <button type="button" class="text-button" [disabled]="busy() || retryPending()" (click)="resetMatches()">
               Réinitialiser mes associations
