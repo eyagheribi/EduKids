@@ -1,0 +1,125 @@
+<a class="skip-link" href="#contenu-principal">Aller au contenu</a>
+
+<div class="shell" [class.drawer-open]="drawerOpen()">
+  <aside class="sidebar" id="navigation-parent" aria-label="Navigation de l’espace parent">
+    <div class="sidebar__head">
+      <a routerLink="/parent/accueil" class="brand" aria-label="EduKids — accueil de l’espace parent">
+        <ek-logo />
+      </a>
+      <button type="button" class="ek-icon-btn sidebar__close" (click)="drawerOpen.set(false)" aria-label="Fermer le menu">
+        <ek-icon name="x" [size]="24" />
+      </button>
+    </div>
+
+    <nav>
+      <ul>
+        @for (item of nav; track item.link) {
+          <li>
+            <a
+              [routerLink]="item.link"
+              routerLinkActive="is-active"
+              #rla="routerLinkActive"
+              [attr.aria-current]="rla.isActive ? 'page' : null"
+            >
+              <span class="nav-icon"><ek-icon [name]="item.icon" [size]="22" [strokeWidth]="2.3" /></span>
+              {{ item.label }}
+            </a>
+          </li>
+        }
+      </ul>
+    </nav>
+
+    <div class="sidebar__decor" aria-hidden="true">
+      <ek-illustration name="plant-books" [width]="170" />
+    </div>
+  </aside>
+
+  <button
+    type="button"
+    class="backdrop"
+    tabindex="-1"
+    aria-hidden="true"
+    (click)="drawerOpen.set(false)"
+  ></button>
+
+  <div class="main">
+    <header class="topbar">
+      <button
+        type="button"
+        class="ek-icon-btn topbar__menu"
+        (click)="drawerOpen.set(true)"
+        aria-label="Ouvrir le menu"
+        aria-controls="navigation-parent"
+        [attr.aria-expanded]="drawerOpen()"
+      >
+        <ek-icon name="menu" [size]="26" />
+      </button>
+      <a routerLink="/parent/accueil" class="topbar__logo" aria-label="EduKids"><ek-logo size="sm" /></a>
+
+      <div class="topbar__actions">
+        <button
+          type="button"
+          class="bell"
+          cdkOverlayOrigin
+          #bellOrigin="cdkOverlayOrigin"
+          (click)="notificationsOpen.set(!notificationsOpen())"
+          [attr.aria-expanded]="notificationsOpen()"
+          aria-haspopup="dialog"
+          aria-label="Notifications"
+        >
+          <ek-icon name="bell" [size]="24" />
+        </button>
+
+        <ng-template
+          cdkConnectedOverlay
+          [cdkConnectedOverlayOrigin]="bellOrigin"
+          [cdkConnectedOverlayOpen]="notificationsOpen()"
+          [cdkConnectedOverlayOffsetY]="10"
+          [cdkConnectedOverlayPositions]="[{ originX: 'end', originY: 'bottom', overlayX: 'end', overlayY: 'top' }]"
+          (overlayOutsideClick)="notificationsOpen.set(false)"
+          (detach)="notificationsOpen.set(false)"
+        >
+          <div class="popover" role="dialog" aria-label="Notifications">
+            <p class="popover__title"><ek-icon name="bell" [size]="18" /> Notifications</p>
+            <div class="popover__empty">
+              <ek-icon name="cloud-off" [size]="28" />
+              <p><strong>Aucune notification disponible</strong></p>
+              <p>
+                Notifications.Api n’expose encore aucune fonctionnalité. Les alertes (session inachevée, etc.)
+                apparaîtront ici une fois le service connecté.
+              </p>
+            </div>
+          </div>
+        </ng-template>
+
+        <button type="button" class="user" [cdkMenuTriggerFor]="userMenu" aria-label="Menu du compte">
+          <span class="user__avatar"><ek-icon name="user" [size]="22" [strokeWidth]="2.4" /></span>
+          <span class="user__name">{{ displayName() }}</span>
+          <ek-icon name="chevron-down" [size]="20" class="user__chevron" />
+        </button>
+
+        <ng-template #userMenu>
+          <div class="menu" cdkMenu>
+            <div class="menu__header">
+              <strong>{{ displayName() }}</strong>
+              <span>{{ email() }}</span>
+            </div>
+            <a cdkMenuItem class="menu__item" routerLink="/parent/parametres">
+              <ek-icon name="settings" [size]="18" /> Paramètres
+            </a>
+            <a cdkMenuItem class="menu__item" routerLink="/aide">
+              <ek-icon name="help" [size]="18" /> Aide
+            </a>
+            <button cdkMenuItem type="button" class="menu__item menu__item--danger" (cdkMenuItemTriggered)="logout()">
+              <ek-icon name="log-out" [size]="18" /> Se déconnecter
+            </button>
+          </div>
+        </ng-template>
+      </div>
+    </header>
+
+    <main id="contenu-principal" class="content" tabindex="-1">
+      <router-outlet />
+    </main>
+  </div>
+</div>
