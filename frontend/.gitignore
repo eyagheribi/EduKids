@@ -41,3 +41,7 @@ __screenshots__/
 # System files
 .DS_Store
 Thumbs.db
+
+# The root .gitignore ignores macOS "Icon" files, which also matches this folder on
+# case-insensitive file systems.
+!/src/app/shared/ui/icon/
