@@ -1,0 +1,107 @@
+<div class="plot" #plot [style.height.px]="height()">
+  @if (layout(); as l) {
+    <svg
+      [attr.viewBox]="'0 0 ' + l.width + ' ' + l.height"
+      [attr.width]="l.width"
+      [attr.height]="l.height"
+      role="img"
+      [attr.aria-label]="summary()"
+      (pointermove)="onPointerMove($event)"
+      (pointerdown)="onPointerMove($event)"
+      (pointerleave)="onPointerLeave()"
+    >
+      <defs>
+        <linearGradient [attr.id]="gradientId" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#8b5ce6" stop-opacity="0.26" />
+          <stop offset="1" stop-color="#8b5ce6" stop-opacity="0.02" />
+        </linearGradient>
+      </defs>
+
+      <g class="grid" aria-hidden="true">
+        @for (tick of l.yTicks; track tick.position) {
+          @if (!$first) {
+            <line [attr.x1]="l.plotLeft" [attr.x2]="l.plotRight" [attr.y1]="tick.position" [attr.y2]="tick.position" />
+          }
+          <text class="label" [attr.x]="l.plotLeft - 10" [attr.y]="tick.position" dy="0.35em" text-anchor="end">
+            {{ tick.label }}
+          </text>
+        }
+        @for (tick of l.xTicks; track tick.position) {
+          <text class="label" [attr.x]="tick.position" [attr.y]="l.plotBottom + 23" text-anchor="middle">
+            {{ tick.label }}
+          </text>
+        }
+      </g>
+      <path class="axis" [attr.d]="'M' + l.plotLeft + ' ' + l.plotTop + ' V' + l.plotBottom + ' H' + l.plotRight" />
+
+      <path class="area" [attr.d]="l.areaPath" [attr.fill]="'url(#' + gradientId + ')'" />
+      <path class="line" [attr.d]="l.linePath" />
+
+      @if (activeCoord(); as a) {
+        <line class="crosshair" [attr.x1]="a.x" [attr.x2]="a.x" [attr.y1]="l.plotTop" [attr.y2]="l.plotBottom" />
+      }
+
+      @for (coord of l.coords; track coord.point.day; let last = $last) {
+        <circle
+          class="dot"
+          [class.dot--last]="last"
+          [class.dot--active]="activeCoord()?.point?.day === coord.point.day"
+          [attr.cx]="coord.x"
+          [attr.cy]="coord.y"
+          [attr.r]="activeCoord()?.point?.day === coord.point.day ? 7 : last ? 6 : 4.5"
+        />
+      }
+
+      @if (l.bubble; as b) {
+        @if (!activeCoord()) {
+          <g class="bubble" aria-hidden="true">
+            <rect [attr.x]="b.x" [attr.y]="b.y" [attr.width]="b.width" [attr.height]="b.height" rx="10" />
+            <path [attr.d]="'M' + (b.tipX - 6) + ' ' + (b.y + b.height - 0.5) + ' L' + b.tipX + ' ' + (b.y + b.height + 7) + ' L' + (b.tipX + 6) + ' ' + (b.y + b.height - 0.5) + ' Z'" />
+            <text [attr.x]="b.x + b.width / 2" [attr.y]="b.y + b.height / 2" dy="0.36em" text-anchor="middle">
+              {{ b.label }}
+            </text>
+          </g>
+        }
+      }
+    </svg>
+
+    @if (activeCoord(); as a) {
+      <div
+        class="tooltip"
+        [class.tooltip--start]="a.x < 110"
+        [class.tooltip--end]="a.x > l.width - 110"
+        [class.tooltip--below]="a.y < 110"
+        [style.left.px]="a.x"
+        [style.top.px]="a.y"
+        aria-hidden="true"
+      >
+        <span class="tooltip__day">{{ formatLongDay(a.point.time) }}</span>
+        <strong class="tooltip__value">{{ formatPercent(a.point.rate) }}</strong>
+        <span class="tooltip__line">Cumul&nbsp;: {{ a.point.successes }} réussie{{ a.point.successes > 1 ? 's' : '' }} sur {{ a.point.total }}</span>
+        <span class="tooltip__line">Ce jour&nbsp;: {{ a.point.daySuccesses }} / {{ a.point.dayTotal }}</span>
+      </div>
+    }
+  } @else {
+    <span class="ek-skeleton measuring" aria-hidden="true"></span>
+  }
+</div>
+
+<table class="ek-visually-hidden">
+  <caption>Taux de réussite cumulé, jour par jour</caption>
+  <thead>
+    <tr>
+      <th scope="col">Jour</th>
+      <th scope="col">Taux de réussite cumulé</th>
+      <th scope="col">Sessions réussies ce jour</th>
+    </tr>
+  </thead>
+  <tbody>
+    @for (point of points(); track point.day) {
+      <tr>
+        <th scope="row">{{ formatLongDay(point.time) }}</th>
+        <td>{{ formatPercent(point.rate) }} ({{ point.successes }} sur {{ point.total }})</td>
+        <td>{{ point.daySuccesses }} sur {{ point.dayTotal }}</td>
+      </tr>
+    }
+  </tbody>
+</table>
