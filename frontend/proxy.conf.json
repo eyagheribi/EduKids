@@ -1,0 +1,30 @@
+{
+  "/gateway/comptes": {
+    "target": "http://localhost:5220",
+    "secure": false,
+    "changeOrigin": true,
+    "pathRewrite": { "^/gateway/comptes": "" },
+    "logLevel": "warn"
+  },
+  "/gateway/espaces": {
+    "target": "http://localhost:5092",
+    "secure": false,
+    "changeOrigin": true,
+    "pathRewrite": { "^/gateway/espaces": "" },
+    "logLevel": "warn"
+  },
+  "/gateway/activites": {
+    "target": "http://localhost:5156",
+    "secure": false,
+    "changeOrigin": true,
+    "pathRewrite": { "^/gateway/activites": "" },
+    "logLevel": "warn"
+  },
+  "/gateway/suivi": {
+    "target": "http://localhost:5102",
+    "secure": false,
+    "changeOrigin": true,
+    "pathRewrite": { "^/gateway/suivi": "" },
+    "logLevel": "warn"
+  }
+}
