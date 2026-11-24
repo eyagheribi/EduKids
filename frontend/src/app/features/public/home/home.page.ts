@@ -2,18 +2,19 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { LogoComponent } from '../../../shared/ui/brand/logo.component';
 import { IconComponent } from '../../../shared/ui/icon/icon.component';
+import { IllustrationComponent } from '../../../shared/ui/illustration/illustration.component';
 
 @Component({
   selector: 'ek-home-page',
-  imports: [RouterLink, LogoComponent, IconComponent],
+  imports: [RouterLink, LogoComponent, IconComponent, IllustrationComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <main class="welcome">
       <header class="topbar"><a routerLink="/" aria-label="EduKids, accueil"><ek-logo size="lg" /></a><a class="help" routerLink="/aide"><ek-icon name="help" /> Aide</a></header>
       <section class="intro"><span class="eyebrow">Apprendre en s’amusant</span><h1>Bienvenue sur EduKids <span>✦</span></h1><p>Une plateforme pour créer des jeux éducatifs personnalisés<br>et accompagner les apprentissages de votre enfant.</p></section>
       <section class="choices" aria-label="Choisissez votre espace">
-        <article class="choice parent"><div class="art"><span class="orb">✦</span><div class="people"><span class="adult">👩🏻‍🏫</span><span class="kid">👦🏻</span></div><div class="laptop">🦉</div></div><div class="choice-body"><h2><ek-icon name="users" /> Je suis un parent</h2><p>Créez un ou plusieurs espaces enfants, ajoutez des jeux et suivez leurs progrès.</p><a class="button purple" routerLink="/parent/connexion">Se connecter <span>→</span></a><a class="sub-link" routerLink="/parent/inscription">Créer un compte parent</a></div></article>
-        <article class="choice child"><div class="art"><span class="orb">★</span><div class="people solo">👦🏻</div><div class="laptop green-laptop">🎮</div></div><div class="choice-body"><h2><ek-icon name="gamepad" /> Je suis un enfant</h2><p>Accède à ton espace avec le code fourni par ton parent et joue à tes jeux !</p><a class="button green" routerLink="/enfant/connexion">Entrer un code <span>→</span></a></div></article>
+        <article class="choice parent"><div class="art"><span class="orb">✦</span><ek-illustration name="parent-child-laptop" width="520" [decorative]="false" /></div><div class="choice-body"><h2><ek-icon name="users" /> Je suis un parent</h2><p>Créez un ou plusieurs espaces enfants, ajoutez des jeux et suivez leurs progrès.</p><a class="button purple" routerLink="/parent/connexion">Se connecter <span>→</span></a><a class="sub-link" routerLink="/parent/inscription">Créer un compte parent</a></div></article>
+        <article class="choice child"><div class="art"><span class="orb">★</span><ek-illustration name="child-headphones" width="250" [decorative]="false" /></div><div class="choice-body"><h2><ek-icon name="gamepad" /> Je suis un enfant</h2><p>Accède à ton espace avec le code fourni par ton parent et joue à tes jeux !</p><a class="button green" routerLink="/enfant/connexion">Entrer un code <span>→</span></a></div></article>
       </section>
       <footer>Un petit pas chaque jour, de grandes réussites ! <span>💜</span></footer>
     </main>`,

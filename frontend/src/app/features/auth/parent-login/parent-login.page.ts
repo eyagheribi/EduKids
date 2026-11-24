@@ -6,10 +6,11 @@ import { SessionService } from '../../../core/auth/session.service';
 import { toApiError } from '../../../core/api/api-error';
 import { LogoComponent } from '../../../shared/ui/brand/logo.component';
 import { IconComponent } from '../../../shared/ui/icon/icon.component';
+import { IllustrationComponent } from '../../../shared/ui/illustration/illustration.component';
 
-@Component({ selector: 'ek-parent-login-page', imports: [ReactiveFormsModule, RouterLink, LogoComponent, IconComponent], changeDetection: ChangeDetectionStrategy.OnPush,
+@Component({ selector: 'ek-parent-login-page', imports: [ReactiveFormsModule, RouterLink, LogoComponent, IconComponent, IllustrationComponent], changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <main class="auth"><aside class="story"><a routerLink="/"><ek-logo size="lg" /></a><h1>Espace Parent <i>✦</i></h1><p>Créez des espaces personnalisés pour vos enfants, concevez leurs jeux et suivez leurs progrès.</p><div class="illustration"><span>👩🏻‍🏫</span><span>👦🏻</span><b>🦉</b></div><div class="benefits"><div><span>🎮</span>Créez des jeux</div><div><span>👨‍👩‍👧</span>Gérez plusieurs enfants</div><div><span>📊</span>Suivez leurs résultats</div></div></aside>
+    <main class="auth"><aside class="story"><a routerLink="/"><ek-logo size="lg" /></a><h1>Espace Parent <i>✦</i></h1><p>Créez des espaces personnalisés pour vos enfants, concevez leurs jeux et suivez leurs progrès.</p><div class="illustration"><ek-illustration name="parent-child-laptop" width="500" [decorative]="false"/></div><div class="benefits"><div><span>🎮</span>Créez des jeux</div><div><span>👨‍👩‍👧</span>Gérez plusieurs enfants</div><div><span>📊</span>Suivez leurs résultats</div></div></aside>
     <section class="panel"><a class="back" routerLink="/"><ek-icon name="arrow-left" /> Retour</a><header><h2>Connexion Parent</h2><p>Accédez à votre espace pour gérer les comptes de vos enfants.</p></header>
       @if (message()) { <div class="alert" role="alert">{{message()}}</div> }
       <form [formGroup]="form" (ngSubmit)="submit()" novalidate><label>Adresse e-mail<input type="email" formControlName="email" placeholder="exemple@email.com" autocomplete="email"></label><label>Mot de passe<input type="password" formControlName="motDePasse" placeholder="Votre mot de passe" autocomplete="current-password"></label><a class="forgot" routerLink="/aide">Mot de passe oublié ?</a><button class="primary" [disabled]="busy()">{{busy()?'Connexion…':'Se connecter'}} <span>→</span></button></form>
