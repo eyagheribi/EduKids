@@ -17,6 +17,7 @@ import {
 import { CategoryId, GAME_TYPE_LABELS } from '../../../core/models/categories';
 import { ChildDashboardDemoService } from '../home/child-dashboard-demo.service';
 import { ChildContext } from '../child-context';
+import { ChildGameSessionRegistry } from '../child-game-session-registry.service';
 import { CategoryIconComponent } from '../../../shared/ui/category-icon/category-icon.component';
 import { CharacterComponent } from '../../../shared/ui/character/character.component';
 import { IconComponent } from '../../../shared/ui/icon/icon.component';
@@ -97,6 +98,7 @@ export class GamePlayerPage {
   private readonly route = inject(ActivatedRoute);
   private readonly location = inject(Location);
   private readonly gateway = inject(GamesGateway);
+  private readonly sessionRegistry = inject(ChildGameSessionRegistry);
   private readonly demoRewards = inject(ChildDashboardDemoService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly gameId = this.route.snapshot.paramMap.get('gameId') ?? '';
@@ -488,13 +490,15 @@ export class GamePlayerPage {
     this.pendingAttempt = null;
     this.retryPending.set(false);
     this.feedback.set(null);
-    this.session.set({
+    const updatedSession: SessionDto = {
       ...session,
       status: attempt.status,
       attemptsUsed: attempt.number,
       nextAvailableAt: attempt.nextAvailableAt,
       inactivityDeadlineAt: attempt.status === 'ACTIVE' ? session.inactivityDeadlineAt : null,
-    });
+    };
+    this.session.set(updatedSession);
+    this.rememberSession(updatedSession);
     const outcome = outcomeOfAttempt(game.type, attempt);
     if (outcome.kind === 'retry') {
       this.feedback.set(outcome.feedback);
@@ -565,6 +569,7 @@ export class GamePlayerPage {
 
   private updateSession(session: SessionDto): void {
     this.session.set(session);
+    this.rememberSession(session);
     if (session.game?.type) this.gameTypeFromRoute.set(session.game.type);
     const ended = endScreenForSession(session);
     if (ended) this.screen.set(ended);
@@ -580,6 +585,16 @@ export class GamePlayerPage {
         ? toSentenceAnswer(state)
         : null,
     );
+  }
+
+  private rememberSession(session: SessionDto): void {
+    try {
+      this.sessionRegistry.remember(session.spaceId, session.gameId, session.id);
+    } catch (error: unknown) {
+      this.statusMessage.set(
+        `La session est enregistrée, mais sa reprise ne pourra pas être mémorisée : ${errorMessage(error)}`,
+      );
+    }
   }
 
   private cancelSpeech(message: string): void {

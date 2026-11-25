@@ -57,6 +57,8 @@ describe('ChildDashboardDemoService', () => {
       type: 'MATH',
     });
     expect(service.resumableGameFor('space-2')).toBeNull();
+    expect(service.latestSessionIdFor('space-1', 'game-1')).toBe('session-1');
+    expect(service.latestSessionIdFor('space-2', 'game-1')).toBeNull();
   });
 
   it('does not offer an active session after its inactivity deadline', () => {

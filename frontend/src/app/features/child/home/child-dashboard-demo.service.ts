@@ -113,6 +113,19 @@ export class ChildDashboardDemoService {
     return null;
   }
 
+  /** Latest local demo session for the requested game, regardless of its completion status. */
+  latestSessionIdFor(spaceId: string, gameId: string): string | null {
+    if (this.gamesMode !== 'demo') return null;
+
+    this.store.version();
+    return (
+      this.store
+        .read()
+        .sessions.filter((session) => session.spaceId === spaceId && session.gameId === gameId)
+        .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0]?.id ?? null
+    );
+  }
+
   characterFor(spaceId: string): string {
     try {
       const stored = localStorage.getItem(DEMO_CHARACTER_KEY);
