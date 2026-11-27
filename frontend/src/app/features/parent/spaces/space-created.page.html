@@ -1,0 +1,124 @@
+<div class="ek-page page">
+  <nav aria-label="Fil d’Ariane">
+    <ol class="ek-breadcrumb">
+      <li><a routerLink="/parent/accueil">Espace Parent</a></li>
+      <li><a routerLink="/parent/enfants">Mes espaces enfants</a></li>
+      <li><span aria-current="page">Nouvel espace</span></li>
+    </ol>
+  </nav>
+
+  @if (error(); as err) {
+    <section class="ek-card ek-card--lg status-card">
+      @if (err.isNotFound) {
+        <ek-empty-state
+          icon="circle-slash"
+          title="Cet espace n’existe pas ou ne vous appartient plus"
+          text="Il a peut-être été supprimé. Retrouvez tous les espaces de vos enfants dans la liste."
+        >
+          <a class="ek-btn" routerLink="/parent/enfants">
+            <ek-icon name="arrow-left" [size]="18" /> Retour à mes enfants
+          </a>
+        </ek-empty-state>
+      } @else {
+        <ek-error-state title="Impossible d’afficher le nouvel espace" [error]="err" (retry)="retry()" />
+        <a class="ek-back back-link" routerLink="/parent/enfants">
+          <ek-icon name="arrow-left" [size]="18" /> Retour à mes enfants
+        </a>
+      }
+    </section>
+  } @else if (space(); as s) {
+    <section class="ek-card ek-card--lg hero" aria-labelledby="space-created-title">
+      <div class="confetti" aria-hidden="true">
+        @for (piece of confetti; track $index) {
+          <i
+            [class.round]="piece.round"
+            [style.left.%]="piece.left"
+            [style.background]="piece.color"
+            [style.animation-delay.ms]="piece.delay"
+            [style.animation-duration.ms]="piece.duration"
+            [style.--drift]="piece.drift"
+            [style.--spin]="piece.spin"
+          ></i>
+        }
+      </div>
+
+      <div class="hero__mascot" aria-hidden="true">
+        <span class="halo"></span>
+        <ek-owl [size]="116" mood="cheer" [sparkles]="true" />
+      </div>
+
+      <span class="ek-chip ek-chip--green done-chip">
+        <ek-icon name="check-circle" [size]="16" /> Espace créé
+      </span>
+
+      <h1 id="space-created-title" class="hero__title" tabindex="-1">
+        {{ title() }}
+        <ek-sparkles [size]="30" class="spark" />
+      </h1>
+
+      <div class="code-block">
+        <ek-access-code [code]="s.codeAcces" size="lg" />
+        <p class="explain">
+          Donnez ce code à {{ s.nomEnfant }} : il suffit de le saisir après avoir choisi
+          <strong>« Je suis un enfant »</strong> sur la page d’accueil.
+        </p>
+        <p class="ek-muted small">Vous retrouverez ce code à tout moment dans l’espace {{ deName() }}.</p>
+      </div>
+
+      <div class="cats">
+        <span class="cats__label">Catégories activées</span>
+        <div class="cats__list">
+          @for (cat of categories(); track cat.id) {
+            <span [class]="cat.chip">{{ cat.label }}</span>
+          }
+        </div>
+      </div>
+
+      <div class="avatar-pick" role="radiogroup" aria-labelledby="avatar-pick-label">
+        <p class="avatar-pick__label" id="avatar-pick-label">
+          <ek-icon name="smile" [size]="18" /> Choisissez un avatar <span class="ek-label__optional">(facultatif)</span>
+        </p>
+        <div class="avatar-pick__list">
+          @for (a of avatars; track a.key) {
+            <button
+              type="button"
+              role="radio"
+              class="avatar-opt"
+              [class.is-selected]="s.avatar === a.key"
+              [class.is-saving]="savingAvatar() === a.key"
+              [attr.aria-checked]="s.avatar === a.key"
+              [attr.aria-label]="a.label"
+              [title]="a.label"
+              [disabled]="savingAvatar() !== null"
+              (click)="chooseAvatar(a.key)"
+            >
+              <ek-avatar [avatar]="a.key" [size]="54" />
+              @if (s.avatar === a.key) {
+                <span class="avatar-opt__check" aria-hidden="true">
+                  <ek-icon [name]="savingAvatar() === a.key ? 'loader' : 'check'" [size]="12" [strokeWidth]="3.4" />
+                </span>
+              }
+            </button>
+          }
+        </div>
+        <p class="ek-field__hint">Sans choix, un avatar est attribué automatiquement. Modifiable à tout moment.</p>
+      </div>
+
+      <div class="actions">
+        <a class="ek-btn ek-btn--success ek-btn--lg" [routerLink]="['/parent/enfants', s.id, 'jeux']">
+          Accéder à l’espace {{ deName() }}
+          <span class="ek-btn__arrow"><ek-icon name="arrow-right" [size]="18" [strokeWidth]="2.8" /></span>
+        </a>
+        <a class="ek-btn ek-btn--outline ek-btn--lg" routerLink="/parent/enfants">Retour à mes enfants</a>
+      </div>
+    </section>
+  } @else {
+    <section class="ek-card ek-card--lg hero" aria-busy="true">
+      <span class="ek-skeleton sk-owl"></span>
+      <span class="ek-skeleton sk-title"></span>
+      <span class="ek-skeleton sk-code"></span>
+      <span class="ek-skeleton sk-line"></span>
+      <span class="ek-visually-hidden" role="status">Chargement du nouvel espace…</span>
+    </section>
+  }
+</div>

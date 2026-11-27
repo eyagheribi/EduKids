@@ -1,0 +1,210 @@
+<div class="ek-page">
+  <ek-page-header
+    eyebrow="Espace Parent"
+    title="Mes espaces enfants"
+    subtitle="Gérez les espaces de vos enfants et créez-en de nouveaux."
+  />
+  @if (demoMode()) {
+    <div class="ek-alert ek-alert--info" role="status">Mode démonstration : les espaces ci-dessous sont des exemples locaux, pas les données d’un compte parent.</div>
+  }
+
+  <div class="layout">
+    <section class="ek-card ek-card--lg panel" [attr.data-mode]="mode()">
+      @switch (mode()) {
+        @case ('list') {
+          <div class="state" data-state="list">
+            <header class="panel__head">
+              <h2 class="ek-card__title panel__title" id="spaces-list-title" tabindex="-1" #listTitle>
+                <ek-icon name="users" [size]="28" [strokeWidth]="2.3" />
+                Mes espaces enfants
+              </h2>
+              @if (rows().length) {
+                <button type="button" class="ek-btn ek-btn--mint create-btn" (click)="openCreate()">
+                  <span class="plus"><ek-icon name="plus" [size]="16" [strokeWidth]="3.2" /></span>
+                  Créer un espace enfant
+                </button>
+              }
+            </header>
+
+            @if (store.error() && !spaces()) {
+              <ek-error-state
+                title="Impossible de charger vos espaces enfants"
+                [error]="store.error()"
+                (retry)="reload(true)"
+              />
+            } @else if (!spaces()) {
+              <ul class="space-list" aria-busy="true" aria-label="Chargement des espaces enfants">
+                @for (i of [0, 1, 2]; track i) {
+                  <li class="space-row space-row--skeleton" aria-hidden="true">
+                    <span class="ek-skeleton sk-avatar"></span>
+                    <span class="sk-body">
+                      <span class="ek-skeleton sk-name"></span>
+                      <span class="ek-skeleton sk-chips"></span>
+                    </span>
+                  </li>
+                }
+              </ul>
+              <span class="ek-visually-hidden" role="status">Chargement de vos espaces enfants…</span>
+            } @else if (!rows().length) {
+              <ek-empty-state
+                class="empty"
+                icon="baby"
+                title="Aucun espace enfant pour l’instant"
+                text="Créez l’espace de votre enfant : vous choisirez ses catégories de jeux et recevrez un code d’accès à lui transmettre."
+              >
+                <button type="button" class="ek-btn ek-btn--success" (click)="openCreate()">
+                  <ek-icon name="plus-circle" [size]="20" /> Créer le premier espace
+                </button>
+              </ek-empty-state>
+            } @else {
+              @if (store.error()) {
+                <ek-error-state
+                  title="La liste n’a pas pu être actualisée"
+                  [error]="store.error()"
+                  (retry)="reload(true)"
+                />
+              }
+              <ul class="space-list" aria-labelledby="spaces-list-title">
+                @for (row of rows(); track row.space.id; let i = $index) {
+                  <li [style.animation-delay.ms]="i * 45">
+                    <a
+                      class="space-row"
+                      [routerLink]="['/parent/enfants', row.space.id]"
+                      [attr.aria-label]="row.label + (row.categories.length ? ' — ' + row.categories.length + ' catégorie' + (row.categories.length > 1 ? 's' : '') + ' de jeux' : '')"
+                    >
+                      <span class="space-row__avatar">
+                        <ek-avatar [avatar]="row.space.avatar" [seed]="row.space.id" [size]="62" />
+                      </span>
+                      <span class="space-row__body">
+                        <span class="space-row__name">{{ row.space.nomEnfant }}</span>
+                        <span class="space-row__chips">
+                          @for (cat of row.categories; track cat.id) {
+                            <span [class]="cat.chip">{{ cat.label }}</span>
+                          } @empty {
+                            <span class="ek-chip ek-chip--sm ek-chip--gray">Aucune catégorie</span>
+                          }
+                        </span>
+                      </span>
+                      <span class="space-row__chevron"><ek-icon name="chevron-right" [size]="26" [strokeWidth]="2.6" /></span>
+                    </a>
+                  </li>
+                }
+              </ul>
+              <p class="list-hint">
+                <ek-icon name="key" [size]="18" />
+                Chaque enfant se connecte avec son propre code d’accès, affiché dans son espace.
+              </p>
+            }
+          </div>
+        }
+
+        @case ('create') {
+          <form class="state create" data-state="create" [formGroup]="form" (ngSubmit)="submit()" novalidate>
+            <a
+              class="ek-back ek-back--sm back"
+              routerLink="/parent/enfants"
+              (click)="$event.preventDefault(); showList()"
+            >
+              <ek-icon name="arrow-left" [size]="16" [strokeWidth]="2.6" /> Retour à la liste
+            </a>
+
+            <div class="create__head">
+              <h2 class="ek-card__title panel__title" tabindex="-1" #createTitle>
+                <ek-icon name="plus-circle" [size]="28" [strokeWidth]="2.3" />
+                Créer un espace enfant
+              </h2>
+              <p class="ek-card__subtitle">
+                Ajoutez un enfant et choisissez les catégories de jeux auxquelles il aura accès.
+              </p>
+            </div>
+
+            @if (submitError(); as error) {
+              <div class="ek-alert ek-alert--error" role="alert">
+                <ek-icon name="alert" [size]="22" />
+                <div>
+                  <strong>L’espace n’a pas pu être créé.</strong>
+                  <p>{{ error.message }}</p>
+                  @for (detail of error.details; track detail) {
+                    <p>{{ detail }}</p>
+                  }
+                </div>
+              </div>
+            }
+
+            <div class="ek-field name-field">
+              <label class="ek-label" for="space-name">
+                <ek-icon name="user" [size]="20" [strokeWidth]="2.4" /> Nom de l’enfant
+              </label>
+              <input
+                #nameInput
+                id="space-name"
+                class="ek-input"
+                type="text"
+                formControlName="nomEnfant"
+                placeholder="Entrez le nom de l’enfant"
+                autocomplete="off"
+                [attr.maxlength]="nameMax"
+                [attr.aria-invalid]="nameError() ? true : null"
+                [attr.aria-describedby]="nameError() ? 'space-name-error' : 'space-name-hint'"
+                aria-required="true"
+              />
+              @if (nameError(); as message) {
+                <p class="ek-field__error" id="space-name-error">
+                  <ek-icon name="alert" [size]="16" /> {{ message }}
+                </p>
+              } @else {
+                <p class="ek-field__hint" id="space-name-hint">
+                  Seul le prénom suffit : c’est ainsi que l’espace sera affiché ({{ nameMax }} caractères max.).
+                </p>
+              }
+            </div>
+
+            <fieldset class="categories">
+              <legend class="ek-label">
+                <ek-icon name="gamepad" [size]="20" [strokeWidth]="2.3" /> Catégories de jeux
+              </legend>
+              <p class="ek-field__hint" id="space-categories-hint">
+                Sélectionnez les types de jeux à activer pour cet enfant.
+              </p>
+              <ek-category-picker
+                formControlName="activites"
+                [invalid]="activitesError()"
+                [describedBy]="activitesError() ? 'space-categories-error' : 'space-categories-hint'"
+              />
+              @if (activitesError()) {
+                <p class="ek-field__error" id="space-categories-error" role="alert">
+                  <ek-icon name="alert" [size]="16" /> {{ activitesMessage }}
+                </p>
+              }
+              <p class="engine-note">
+                <ek-icon name="info" [size]="16" />
+                <span>
+                  Le moteur « Ordonnancement de mots » existe dans Activites.Api, mais Espaces.Api ne permet pas
+                  encore de l’activer pour un enfant.
+                  <a routerLink="/parent/parametres" fragment="integrations">En savoir plus</a>
+                </span>
+              </p>
+            </fieldset>
+
+            <div class="actions">
+              <button type="button" class="ek-btn ek-btn--outline" (click)="showList()" [disabled]="pending()">
+                Annuler
+              </button>
+              <button type="submit" class="ek-btn ek-btn--success submit" [disabled]="pending()">
+                @if (pending()) {
+                  <ek-icon name="loader" [size]="18" class="spin" /> Création…
+                } @else {
+                  Créer l’espace <ek-icon name="arrow-right" [size]="20" [strokeWidth]="2.6" />
+                }
+              </button>
+            </div>
+          </form>
+        }
+      }
+    </section>
+
+    <div class="art" aria-hidden="true">
+      <ek-illustration name="parent-child-small" class="art__img" [eager]="true" />
+    </div>
+  </div>
+</div>

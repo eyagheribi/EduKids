@@ -1,0 +1,143 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+.plot {
+  position: relative;
+  width: 100%;
+  touch-action: pan-y;
+}
+
+svg {
+  display: block;
+  max-width: none;
+  overflow: visible;
+  font-family: var(--ek-font-display);
+  cursor: crosshair;
+}
+
+.grid line {
+  stroke: #efe9fb;
+  stroke-width: 1;
+  stroke-dasharray: 3 5;
+}
+
+.label {
+  fill: var(--ek-text);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.axis {
+  fill: none;
+  stroke: #ddd3f3;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+.line {
+  fill: none;
+  stroke: var(--ek-purple-500);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.area {
+  stroke: none;
+}
+
+.dot {
+  fill: #fff;
+  stroke: var(--ek-purple-500);
+  stroke-width: 2.4;
+  transition: r 140ms var(--ek-ease);
+
+  &--last {
+    stroke-width: 3;
+  }
+
+  &--active {
+    fill: var(--ek-purple-500);
+    stroke: #fff;
+    stroke-width: 3;
+    filter: drop-shadow(0 2px 4px rgba(116, 68, 214, 0.35));
+  }
+}
+
+.crosshair {
+  stroke: var(--ek-purple-300);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+}
+
+.bubble {
+  rect,
+  path {
+    fill: var(--ek-purple-500);
+  }
+
+  rect {
+    filter: drop-shadow(0 4px 8px rgba(116, 68, 214, 0.3));
+  }
+
+  text {
+    fill: #fff;
+    font-size: 14.5px;
+    font-weight: 600;
+  }
+}
+
+.tooltip {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  gap: 0.05rem;
+  min-width: 9.5rem;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid var(--ek-border);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: var(--ek-shadow);
+  pointer-events: none;
+  transform: translate(-50%, var(--tooltip-y, calc(-100% - 16px)));
+  white-space: nowrap;
+
+  &--start {
+    transform: translate(-14%, var(--tooltip-y, calc(-100% - 16px)));
+  }
+
+  &--end {
+    transform: translate(-86%, var(--tooltip-y, calc(-100% - 16px)));
+  }
+
+  &--below {
+    --tooltip-y: 18px;
+  }
+
+  &__day {
+    color: var(--ek-text-soft);
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+
+  &__value {
+    color: var(--ek-ink);
+    font-family: var(--ek-font-display);
+    font-size: 1.35rem;
+    font-weight: 600;
+    line-height: 1.15;
+  }
+
+  &__line {
+    color: var(--ek-text);
+    font-size: 0.8rem;
+    font-weight: 700;
+  }
+}
+
+.measuring {
+  height: 100%;
+  border-radius: var(--ek-radius);
+}

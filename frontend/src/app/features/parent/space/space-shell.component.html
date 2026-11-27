@@ -1,0 +1,106 @@
+<div class="ek-page shell">
+  <div class="crumbs">
+    <nav aria-label="Fil d’Ariane" class="crumbs__trail">
+      <ol class="ek-breadcrumb">
+        <li><a routerLink="/parent/accueil">Espace Parent</a></li>
+        <li><a routerLink="/parent/enfants">Mes espaces enfants</a></li>
+        <li>
+          @if (ctx.space()) {
+            <span aria-current="page">{{ title() }}</span>
+          } @else {
+            <span aria-current="page">Espace enfant</span>
+          }
+        </li>
+      </ol>
+    </nav>
+    <a class="ek-back ek-back--sm crumbs__back" routerLink="/parent/enfants">
+      <ek-icon name="arrow-left" [size]="16" [strokeWidth]="2.6" /> Mes enfants
+    </a>
+  </div>
+
+  @if (notFound()) {
+    <section class="ek-card ek-card--lg">
+      <ek-empty-state
+        icon="circle-slash"
+        title="Cet espace n’existe pas ou ne vous appartient plus"
+        text="Il a peut-être été supprimé, ou le lien est incorrect. Retrouvez les espaces de vos enfants dans la liste."
+      >
+        <a class="ek-btn" routerLink="/parent/enfants">
+          <ek-icon name="arrow-left" [size]="18" /> Retour à mes enfants
+        </a>
+      </ek-empty-state>
+    </section>
+  } @else if (ctx.space(); as space) {
+    <header class="head">
+      <span class="head__avatar">
+        <ek-avatar [avatar]="space.avatar" [seed]="space.id" [size]="120" />
+      </span>
+      <div class="head__info">
+        <h1 class="head__title">
+          <span class="head__name">{{ title() }}</span>
+          <ek-sparkles [size]="34" class="head__spark" />
+        </h1>
+        <ek-access-code [code]="space.codeAcces" />
+      </div>
+      <div class="head__actions">
+        <button type="button" class="ek-btn ek-btn--outline" (click)="openEdit()" [disabled]="deleting()">
+          <ek-icon name="pencil" [size]="19" [strokeWidth]="2.4" /> Modifier l’espace
+        </button>
+        <button type="button" class="ek-btn ek-btn--danger-soft" (click)="confirmDelete()" [disabled]="deleting()">
+          @if (deleting()) {
+            <ek-icon name="loader" [size]="19" class="spin" /> Suppression…
+          } @else {
+            <ek-icon name="trash" [size]="19" [strokeWidth]="2.4" /> Supprimer
+          }
+        </button>
+      </div>
+    </header>
+
+    @if (ctx.error(); as error) {
+      <ek-error-state title="Les informations de l’espace n’ont pas pu être actualisées" [error]="error" (retry)="retry()" />
+    }
+
+    <nav class="ek-tabs tabs" aria-label="Sections de l’espace">
+      <a
+        class="ek-tab"
+        [routerLink]="[base()[0], base()[1], 'jeux']"
+        routerLinkActive="is-active"
+        #games="routerLinkActive"
+        [attr.aria-current]="games.isActive ? 'page' : null"
+      >
+        <ek-icon name="gamepad" [size]="26" [strokeWidth]="2.2" class="tab-icon" /> Gestion des jeux
+      </a>
+      <a
+        class="ek-tab"
+        [routerLink]="[base()[0], base()[1], 'progres']"
+        routerLinkActive="is-active"
+        #progress="routerLinkActive"
+        [attr.aria-current]="progress.isActive ? 'page' : null"
+      >
+        <ek-icon name="chart" [size]="26" [strokeWidth]="2.2" class="tab-icon" /> Résultats et progrès
+      </a>
+    </nav>
+
+    <div class="outlet">
+      <router-outlet />
+    </div>
+  } @else if (ctx.error(); as error) {
+    <section class="ek-card ek-card--lg">
+      <ek-error-state title="Impossible d’ouvrir cet espace" [error]="error" (retry)="retry()" />
+      <a class="ek-back back-link" routerLink="/parent/enfants">
+        <ek-icon name="arrow-left" [size]="18" /> Retour à mes enfants
+      </a>
+    </section>
+  } @else {
+    <div class="head head--loading" aria-busy="true">
+      <span class="ek-skeleton sk-avatar"></span>
+      <div class="sk-info">
+        <span class="ek-skeleton sk-title"></span>
+        <span class="ek-skeleton sk-code"></span>
+      </div>
+    </div>
+    <div class="ek-skeleton sk-tabs"></div>
+    <div class="ek-skeleton sk-panel"></div>
+    <span class="ek-visually-hidden" role="status">Chargement de l’espace…</span>
+  }
+</div>

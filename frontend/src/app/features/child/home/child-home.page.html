@@ -1,0 +1,155 @@
+<div class="child-dashboard">
+  <section class="welcome" aria-labelledby="welcome-title">
+    <div class="welcome__art" aria-hidden="true">
+      <ek-illustration name="child-headphones" [width]="190" [eager]="true" />
+    </div>
+    <div class="welcome__copy">
+      <p class="eyebrow">MON ESPACE</p>
+      <h1 id="welcome-title">Bonjour {{ ctx.firstName() || 'aventurier' }} !</h1>
+      <p>Prêt pour une nouvelle aventure d’apprentissage ?</p>
+      @if (ctx.space()?.personnagePrefere) {
+        <div class="welcome__companion">
+          <ek-character [key]="ctx.space()?.personnagePrefere" [size]="36" [framed]="true" />
+          <span>Ton compagnon t’accompagne !</span>
+          <a routerLink="/enfant/personnage">Changer</a>
+        </div>
+      } @else {
+        <a class="choose-character" routerLink="/enfant/personnage">
+          <ek-icon name="sparkles" [size]="17" /> Choisis ton personnage
+        </a>
+      }
+    </div>
+    <div class="welcome__mascot" aria-hidden="true">
+      <ek-owl [size]="95" mood="cheer" [sparkles]="true" />
+    </div>
+  </section>
+
+  <ek-child-star-goal [goal]="goal()" [childName]="ctx.firstName() || 'aventurier'" />
+
+  <section class="activities-panel" id="jouer-et-apprendre" aria-labelledby="activities-title">
+    <header class="section-heading">
+      <ek-icon name="gamepad" [size]="31" />
+      <div>
+        <h2 id="activities-title">Jouer et apprendre</h2>
+        <p>Choisis une activité et amuse-toi !</p>
+      </div>
+    </header>
+    @if (ctx.loading() && !ctx.space()) {
+      <div class="category-grid category-grid--loading" aria-hidden="true">
+        @for (tile of [1, 2, 3, 4]; track tile) { <div class="category-skeleton"></div> }
+      </div>
+    } @else if (categories().length) {
+      <div class="category-grid">
+        @for (category of categories(); track category.id) {
+          <article class="category-card" [class]="'category-card category-card--' + category.id">
+            <ek-category-icon [category]="category.id" [size]="76" />
+            <h3>{{ category.label }}</h3>
+            <p>{{ category.childDescription }}</p>
+            <a class="play-button" [routerLink]="['/enfant/categories', category.id]">
+              <ek-icon name="play" [size]="17" /> Jouer
+            </a>
+          </article>
+        }
+      </div>
+    } @else if (!ctx.loading() && ctx.space()) {
+      <div class="empty-message">
+        <ek-icon name="gamepad" [size]="32" />
+        <p>Ton parent n’a pas encore activé d’activité. Demande-lui de choisir tes jeux préférés !</p>
+      </div>
+    }
+  </section>
+
+  <div class="lower-grid">
+    <div class="left-column">
+      <section class="resume-panel" aria-labelledby="resume-title">
+        <header class="section-heading section-heading--small">
+          <span class="heading-icon heading-icon--purple"><ek-icon name="play" [size]="22" /></span>
+          <h2 id="resume-title">Continuer mon dernier jeu</h2>
+        </header>
+        @if (resumableGame(); as game) {
+          <div class="resume-game">
+            <span class="resume-game__art" [class]="'resume-game__art resume-game__art--' + categoryId(game.type)">
+              <ek-category-icon [category]="categoryId(game.type)" [size]="70" />
+            </span>
+            <div class="resume-game__info">
+              <h3>{{ game.title }}</h3>
+              <p>{{ categoryLabel(game.type) }}</p>
+              @if (game.attemptsUsed > 0) {
+                <div class="attempt-progress">
+                  <span class="attempt-progress__track">
+                    <span [style.width.%]="(game.attemptsUsed / game.maxAttempts) * 100"></span>
+                  </span>
+                  <small>{{ game.attemptsUsed }} / {{ game.maxAttempts }} essais utilisés</small>
+                </div>
+              } @else {
+                <small class="resume-hint">Ta partie est prête à reprendre</small>
+              }
+            </div>
+            <a class="continue-button" [routerLink]="['/enfant/jouer', game.gameId]" [state]="{ gameTitle: game.title, gameType: game.type }">
+              <ek-icon name="play" [size]="17" /> Continuer
+            </a>
+          </div>
+          <p class="demo-note">Session en cours détectée dans les données locales de démonstration.</p>
+        } @else if (canDiscoverResumableGame) {
+          <div class="resume-empty">
+            <ek-owl [size]="58" mood="think" />
+            <p>Aucune partie en cours à reprendre. Choisis un jeu pour commencer une nouvelle aventure !</p>
+          </div>
+        } @else {
+          <div class="resume-empty">
+            <ek-owl [size]="58" mood="think" />
+            <p>Le service connecté ne permet pas encore de retrouver les parties en cours. Tu peux choisir un jeu pour jouer.</p>
+          </div>
+        }
+      </section>
+
+      <ek-child-badges [badges]="badges()" />
+    </div>
+
+    <section class="recent-panel" id="mes-derniers-jeux" aria-labelledby="recent-title">
+      <header class="section-heading section-heading--small">
+        <span class="heading-icon heading-icon--purple"><ek-icon name="clock" [size]="23" /></span>
+        <h2 id="recent-title">Mes derniers jeux</h2>
+        @if (demoProgress) { <span class="source-label">Démonstration</span> }
+      </header>
+      @if (recentLoading()) {
+        <div class="recent-list" aria-busy="true">
+          @for (item of [1, 2, 3]; track item) { <div class="recent-skeleton"></div> }
+        </div>
+      } @else if (recentError(); as error) {
+        <div class="recent-error" role="alert">
+          <ek-icon name="alert" [size]="21" />
+          <p>Impossible de charger tes derniers jeux : {{ error.message }}</p>
+          <button type="button" (click)="loadRecentGames()">Réessayer</button>
+        </div>
+      } @else if (recentGames().length) {
+        <div class="recent-list">
+          @for (session of recentGames(); track session.sessionId) {
+            <article class="recent-game">
+              <span class="recent-game__icon" [class]="'recent-game__icon recent-game__icon--' + categoryId(session.gameType)">
+                <ek-category-icon [category]="categoryId(session.gameType)" [size]="43" />
+              </span>
+              <div class="recent-game__info">
+                <h3>{{ session.gameTitle || 'Jeu éducatif' }}</h3>
+                <p>{{ categoryLabel(session.gameType) }} · {{ session.completedAt | date: 'd MMM' }}</p>
+              </div>
+              <span class="result-chip" [class.result-chip--success]="session.finalStatus === 'SUCCESS'">
+                @if (session.finalStatus === 'SUCCESS') { <ek-icon name="star" [size]="16" /> }
+                {{ resultLabel(session) }}
+                @if (scoreLabel(session); as score) { <small>{{ score }}</small> }
+              </span>
+            </article>
+          }
+        </div>
+        @if (demoProgress) {
+          <p class="demo-note">Activités locales de démonstration, non issues d’une sauvegarde backend.</p>
+        }
+      } @else {
+        <div class="recent-empty">
+          <ek-icon name="book" [size]="31" />
+          <p>Joue à ton premier jeu pour le retrouver ici !</p>
+        </div>
+      }
+    </section>
+  </div>
+</div>

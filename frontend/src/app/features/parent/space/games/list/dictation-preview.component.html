@@ -1,0 +1,79 @@
+<section class="ek-card ek-card--lg demo" aria-labelledby="dictation-demo-title">
+  <header class="head">
+    <span class="ek-chip ek-chip--yellow"><ek-icon name="flask" [size]="15" /> Démonstration statique</span>
+    <h3 id="dictation-demo-title">À quoi ressemblerait un jeu de dictée</h3>
+    <p class="lead">
+      La dictée est bien activée pour {{ childName() }} dans Espaces.Api, mais Activites.Api ne possède pas encore
+      de moteur de dictée : aucun jeu ne peut être créé, joué ni suivi pour l’instant. Cet exemple non connecté
+      montre simplement ce qu’un tel jeu contiendrait.
+    </p>
+  </header>
+
+  <div class="layout">
+    <fieldset class="form" disabled aria-describedby="dictation-demo-note">
+      <legend class="ek-visually-hidden">Exemple de jeu de dictée (désactivé)</legend>
+
+      <div class="step">
+        <span class="step__num" aria-hidden="true">1</span>
+        <div class="ek-field">
+          <label class="ek-label" for="dictation-demo-sentence">
+            <ek-icon name="file-text" [size]="18" /> Phrase à dicter
+          </label>
+          <textarea id="dictation-demo-sentence" class="ek-textarea" rows="2" readonly>
+Le petit chat boit son lait dans la cuisine.</textarea
+          >
+          <p class="ek-field__hint">Écrite par le parent, comme pour les autres jeux.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <span class="step__num" aria-hidden="true">2</span>
+        <div class="ek-field">
+          <span class="ek-label" id="dictation-demo-audio"><ek-icon name="volume" [size]="18" /> Audio</span>
+          <div class="player" role="group" aria-labelledby="dictation-demo-audio">
+            <button type="button" class="ek-btn ek-btn--icon ek-btn--sm" aria-label="Écouter la phrase (indisponible)">
+              <ek-icon name="play" [size]="18" />
+            </button>
+            <span class="wave" aria-hidden="true">
+              @for (bar of bars; track $index) {
+                <i [style.height.px]="bar"></i>
+              }
+            </span>
+            <span class="time">0:04</span>
+          </div>
+          <p class="ek-field__hint">La phrase serait lue à voix haute à l’enfant (enregistrement ou synthèse vocale).</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <span class="step__num" aria-hidden="true">3</span>
+        <div class="ek-field">
+          <label class="ek-label" for="dictation-demo-answer">
+            <ek-icon name="pen-line" [size]="18" /> Réponse de l’enfant
+          </label>
+          <input
+            id="dictation-demo-answer"
+            class="ek-input"
+            type="text"
+            value="Le petit chat boit son lait dans la cuisine."
+            readonly
+          />
+          <p class="ek-field__hint">L’enfant écrirait ce qu’il entend, puis validerait sa réponse.</p>
+        </div>
+      </div>
+
+      <div class="footer">
+        <button type="button" class="ek-btn ek-btn--success">
+          <ek-icon name="plus" [size]="18" /> Créer un jeu de dictée
+        </button>
+        <p class="note" id="dictation-demo-note">
+          <ek-icon name="circle-slash" [size]="16" /> Indisponible : aucun moteur de dictée dans Activites.Api.
+        </p>
+      </div>
+    </fieldset>
+
+    <aside class="art" aria-hidden="true">
+      <ek-illustration name="child-headphones" [width]="240" />
+    </aside>
+  </div>
+</section>

@@ -1,0 +1,100 @@
+// EduKids design tokens — derived from the mockups in /design.
+// Components consume these CSS custom properties; never hard-code colors.
+
+:root {
+  color-scheme: light;
+
+  // Purple (primary brand)
+  --ek-purple-50: #f7f3ff;
+  --ek-purple-100: #efe7fe;
+  --ek-purple-150: #e7dcfd;
+  --ek-purple-200: #ddcdfb;
+  --ek-purple-300: #c4a9f6;
+  --ek-purple-400: #a47def;
+  --ek-purple-500: #8b5ce6;
+  --ek-purple-600: #7444d6;
+  --ek-purple-700: #5e31b8;
+  --ek-purple-800: #47228f;
+  --ek-purple-900: #2c0f5e;
+
+  // Green (child / success)
+  --ek-green-50: #eefaf0;
+  --ek-green-100: #dcf4e1;
+  --ek-green-200: #b9e8c3;
+  --ek-green-300: #8fd79e;
+  --ek-green-400: #55c06a;
+  --ek-green-500: #36a64d;
+  --ek-green-600: #2b8c3f;
+  --ek-green-700: #217033;
+  --ek-green-800: #185526;
+
+  // Yellow (sparkles / rewards)
+  --ek-yellow-50: #fff9e8;
+  --ek-yellow-100: #fff0c6;
+  --ek-yellow-200: #ffe194;
+  --ek-yellow-400: #ffc93c;
+  --ek-yellow-500: #f6b10f;
+  --ek-yellow-700: #9b6b00;
+
+  // Blue (info / ordering)
+  --ek-blue-50: #ecf5ff;
+  --ek-blue-100: #d8eaff;
+  --ek-blue-200: #b5d6fd;
+  --ek-blue-400: #4f9cf5;
+  --ek-blue-500: #2f82ea;
+  --ek-blue-700: #1c5bb0;
+
+  // Orange (unfinished sessions)
+  --ek-orange-50: #fff4ea;
+  --ek-orange-100: #ffe5cc;
+  --ek-orange-500: #f08a24;
+  --ek-orange-700: #b25a07;
+
+  // Red (danger / failed)
+  --ek-red-50: #fff0f0;
+  --ek-red-100: #fddcdc;
+  --ek-red-200: #f9b8b9;
+  --ek-red-500: #e5484d;
+  --ek-red-600: #cb2f35;
+  --ek-red-700: #a5222a;
+
+  // Neutrals
+  --ek-ink: #2a0f55;
+  --ek-text: #463f63;
+  --ek-text-soft: #6c6589;
+  --ek-muted: #9a94b4;
+  --ek-bg: #faf8ff;
+  --ek-bg-lavender: #f3eefd;
+  --ek-surface: #ffffff;
+  --ek-surface-soft: #fbfaff;
+  --ek-border: #ece6f8;
+  --ek-border-strong: #ddd3f3;
+
+  // Typography
+  --ek-font-display: 'Fredoka Variable', 'Nunito Variable', ui-rounded, 'Segoe UI', system-ui, sans-serif;
+  --ek-font-body: 'Nunito Variable', ui-rounded, 'Segoe UI', system-ui, -apple-system, sans-serif;
+
+  // Radius
+  --ek-radius-xs: 8px;
+  --ek-radius-sm: 12px;
+  --ek-radius: 16px;
+  --ek-radius-lg: 24px;
+  --ek-radius-xl: 32px;
+  --ek-radius-pill: 999px;
+
+  // Elevation (soft lavender shadows)
+  --ek-shadow-xs: 0 1px 3px rgba(72, 40, 150, 0.06);
+  --ek-shadow-sm: 0 4px 12px rgba(72, 40, 150, 0.07);
+  --ek-shadow: 0 12px 32px rgba(72, 40, 150, 0.09);
+  --ek-shadow-lg: 0 24px 60px rgba(72, 40, 150, 0.14);
+  --ek-ring: 0 0 0 4px rgba(139, 92, 230, 0.18);
+
+  // Motion
+  --ek-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ek-ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ek-duration: 180ms;
+
+  // Layout
+  --ek-sidebar-width: 264px;
+  --ek-gutter: clamp(16px, 3vw, 32px);
+}

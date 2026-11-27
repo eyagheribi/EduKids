@@ -1,0 +1,126 @@
+@use 'mixins' as m;
+
+:host {
+  --dialog-width: 600px;
+  display: contents;
+}
+
+.intro {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.9rem;
+}
+
+.game {
+  min-width: 0;
+  color: var(--ek-text-soft);
+  font-family: var(--ek-font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
+.sessions {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 7.4rem minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0.75rem 0.7rem 0.85rem;
+  border: 1.5px solid var(--ek-border);
+  border-radius: var(--ek-radius);
+  background: var(--ek-surface-soft);
+  color: var(--ek-ink);
+  text-decoration: none;
+  transition:
+    border-color var(--ek-duration) var(--ek-ease),
+    background var(--ek-duration) var(--ek-ease),
+    transform var(--ek-duration) var(--ek-ease);
+
+  &:hover {
+    border-color: var(--ek-purple-200);
+    background: var(--ek-purple-50);
+    color: var(--ek-ink);
+    transform: translateX(2px);
+  }
+
+  &:focus-visible {
+    @include m.focus-ring(2px);
+  }
+}
+
+.status {
+  justify-self: start;
+}
+
+.when {
+  display: grid;
+  min-width: 0;
+  font-weight: 800;
+
+  time {
+    @include m.truncate;
+  }
+}
+
+.attempts {
+  color: var(--ek-text-soft);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.score {
+  font-family: var(--ek-font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  white-space: nowrap;
+
+  &__label {
+    color: var(--ek-text-soft);
+    font-family: var(--ek-font-body);
+    font-size: 0.8rem;
+    font-weight: 700;
+  }
+}
+
+.chevron {
+  color: var(--ek-purple-600);
+}
+
+@include m.down(xs) {
+  .row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.4rem 0.75rem;
+  }
+
+  .when {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .score {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: center;
+  }
+
+  .chevron {
+    display: none;
+  }
+}

@@ -1,8 +1,12 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Security.Claims;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using EduKids.Contracts;
+using EduKids.Security;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -11,11 +15,16 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddSingleton<IClock, SystemClock>();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddHttpClient();
+builder.Services.AddScoped<EspacesApiAuthorization>();
+builder.Services.AddScoped<ISpaceAccess, EduKidsApiSpaceAccess>();
 builder.Services.Configure<GameSessionOptions>(builder.Configuration.GetSection("GameSessions"));
 builder.Services.Configure<RabbitMqProgressPublisherOptions>(builder.Configuration.GetSection("RabbitMq"));
 builder.Services.AddSingleton<IGameEngine, MathEngine>();
 builder.Services.AddSingleton<IGameEngine, MatchingEngine>();
 builder.Services.AddSingleton<IGameEngine, SentenceOrderingEngine>();
+builder.Services.AddSingleton<IGameEngine, DictationEngine>();
 builder.Services.AddDbContext<ActivitiesDbContext>(options => options.UseSqlite(builder.Configuration.GetConnectionString("Activities") ?? "Data Source=activites.db"));
 builder.Services.AddScoped<IGameCatalog, EfGameCatalog>();
 var rabbitMqEnabled = builder.Configuration.GetValue<bool>("RabbitMq:Enabled");
@@ -34,34 +43,27 @@ builder.Services.AddHostedService<SessionExpirationWorker>();
 builder.Services.AddScoped<OutboxDispatchService>();
 builder.Services.AddHostedService<OutboxDispatchWorker>();
 
+var authentication = builder.Services.AddEduKidsJwtBearer(builder.Configuration);
 if (builder.Environment.IsDevelopment())
 {
     builder.Services.AddSingleton<ITestCredentialValidator, DevelopmentTestCredentialValidator>();
-    builder.Services.AddSingleton<ISpaceAccess, DevelopmentSpaceAccess>();
-    builder.Services.AddAuthentication(options =>
-        {
-            options.DefaultAuthenticateScheme = DevelopmentTestAuthentication.Scheme;
-            options.DefaultChallengeScheme = DevelopmentTestAuthentication.Scheme;
-        })
-        .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, DevelopmentTestAuthenticationHandler>(
+    authentication.AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, DevelopmentTestAuthenticationHandler>(
             DevelopmentTestAuthentication.Scheme, _ => { });
-    builder.Services.AddAuthorization();
 }
-else
+builder.Services.AddAuthorization(options =>
 {
-    // Production must replace this with the Espaces.Api-backed access integration.
-    builder.Services.AddSingleton<ISpaceAccess, DenyAllSpaceAccess>();
-}
+    options.AddPolicy("ParentOnly", policy => policy.RequireRole("Parent"));
+    options.AddPolicy("ChildOnly", policy => policy.RequireRole("Enfant"));
+    options.AddPolicy("ParentOrChild", policy => policy.RequireRole("Parent", "Enfant"));
+});
 
 var app = builder.Build();
 using (var scope = app.Services.CreateScope()) { var db = scope.ServiceProvider.GetRequiredService<ActivitiesDbContext>(); await db.Database.EnsureCreatedAsync(); await ActivitiesSchemaUpgrade.ApplyAsync(db); }
 if (app.Environment.IsDevelopment()) { app.UseSwagger(); app.UseSwaggerUI(); }
-app.UseHttpsRedirection();
-if (app.Environment.IsDevelopment())
-{
-    app.UseAuthentication();
-    app.UseAuthorization();
-}
+if (!app.Environment.IsDevelopment())
+    app.UseHttpsRedirection();
+app.UseAuthentication();
+app.UseAuthorization();
 app.Use(async (context, next) =>
 {
     try { await next(); }
@@ -69,21 +71,21 @@ app.Use(async (context, next) =>
 });
 
 var api = app.MapGroup("/api");
-if (app.Environment.IsDevelopment()) api.RequireAuthorization();
-api.MapPost("/spaces/{spaceId:guid}/games", async (Guid spaceId, CreateGameRequest request, ClaimsPrincipal user, GameService service, CancellationToken ct) => Results.Created($"/api/spaces/{spaceId}/games", await service.Create(spaceId, request, user, ct)));
-api.MapGet("/spaces/{spaceId:guid}/games", async (Guid spaceId, string type, ClaimsPrincipal user, GameService service, CancellationToken ct) => await service.List(spaceId, type, user, ct));
-api.MapGet("/spaces/{spaceId:guid}/games/{gameId:guid}", async (Guid spaceId, Guid gameId, ClaimsPrincipal user, GameService service, CancellationToken ct) => await service.Get(spaceId, gameId, user, ct));
-api.MapPut("/spaces/{spaceId:guid}/games/{gameId:guid}", async (Guid spaceId, Guid gameId, CreateGameRequest request, ClaimsPrincipal user, GameService service, CancellationToken ct) => await service.Update(spaceId, gameId, request, user, ct));
-api.MapDelete("/spaces/{spaceId:guid}/games/{gameId:guid}", async (Guid spaceId, Guid gameId, ClaimsPrincipal user, GameService service, CancellationToken ct) => { await service.Delete(spaceId, gameId, user, ct); return Results.NoContent(); });
-api.MapPost("/spaces/{spaceId:guid}/games/{gameId:guid}/sessions", async (Guid spaceId, Guid gameId, ClaimsPrincipal user, GameService service, CancellationToken ct) => Results.Ok(await service.Start(spaceId, gameId, user, ct)));
-api.MapGet("/spaces/{spaceId:guid}/games/{gameId:guid}/availability", async (Guid spaceId, Guid gameId, ClaimsPrincipal user, GameService service, CancellationToken ct) => await service.Availability(spaceId, gameId, user, ct));
-api.MapGet("/spaces/{spaceId:guid}/sessions/{sessionId:guid}", async (Guid spaceId, Guid sessionId, ClaimsPrincipal user, GameService service, CancellationToken ct) => await service.Session(spaceId, sessionId, user, ct));
-api.MapPost("/spaces/{spaceId:guid}/sessions/{sessionId:guid}/attempts", async (Guid spaceId, Guid sessionId, SubmitAttemptRequest request, ClaimsPrincipal user, GameService service, CancellationToken ct) => await service.Submit(spaceId, sessionId, request, user, ct));
+api.RequireAuthorization();
+api.MapPost("/spaces/{spaceId:guid}/games", async (Guid spaceId, CreateGameRequest request, ClaimsPrincipal user, GameService service, CancellationToken ct) => Results.Created($"/api/spaces/{spaceId}/games", await service.Create(spaceId, request, user, ct))).RequireAuthorization("ParentOnly");
+api.MapGet("/spaces/{spaceId:guid}/games", async (Guid spaceId, string type, ClaimsPrincipal user, GameService service, CancellationToken ct) => await service.List(spaceId, type, user, ct)).RequireAuthorization("ParentOrChild");
+api.MapGet("/spaces/{spaceId:guid}/games/{gameId:guid}", async (Guid spaceId, Guid gameId, ClaimsPrincipal user, GameService service, CancellationToken ct) => await service.Get(spaceId, gameId, user, ct)).RequireAuthorization("ParentOrChild");
+api.MapPut("/spaces/{spaceId:guid}/games/{gameId:guid}", async (Guid spaceId, Guid gameId, CreateGameRequest request, ClaimsPrincipal user, GameService service, CancellationToken ct) => await service.Update(spaceId, gameId, request, user, ct)).RequireAuthorization("ParentOnly");
+api.MapDelete("/spaces/{spaceId:guid}/games/{gameId:guid}", async (Guid spaceId, Guid gameId, ClaimsPrincipal user, GameService service, CancellationToken ct) => { await service.Delete(spaceId, gameId, user, ct); return Results.NoContent(); }).RequireAuthorization("ParentOnly");
+api.MapPost("/spaces/{spaceId:guid}/games/{gameId:guid}/sessions", async (Guid spaceId, Guid gameId, ClaimsPrincipal user, GameService service, CancellationToken ct) => Results.Ok(await service.Start(spaceId, gameId, user, ct))).RequireAuthorization("ChildOnly");
+api.MapGet("/spaces/{spaceId:guid}/games/{gameId:guid}/availability", async (Guid spaceId, Guid gameId, ClaimsPrincipal user, GameService service, CancellationToken ct) => await service.Availability(spaceId, gameId, user, ct)).RequireAuthorization("ChildOnly");
+api.MapGet("/spaces/{spaceId:guid}/sessions/{sessionId:guid}", async (Guid spaceId, Guid sessionId, ClaimsPrincipal user, GameService service, CancellationToken ct) => await service.Session(spaceId, sessionId, user, ct)).RequireAuthorization("ChildOnly");
+api.MapPost("/spaces/{spaceId:guid}/sessions/{sessionId:guid}/attempts", async (Guid spaceId, Guid sessionId, SubmitAttemptRequest request, ClaimsPrincipal user, GameService service, CancellationToken ct) => await service.Submit(spaceId, sessionId, request, user, ct)).RequireAuthorization("ChildOnly");
 app.Run();
 
 public partial class Program;
 
-public enum GameType { MATH, MATCHING, SENTENCE_ORDERING }
+public enum GameType { MATH, MATCHING, SENTENCE_ORDERING, DICTATION }
 public enum SessionStatus { ACTIVE, SUCCESS, FAILED, UNFINISHED }
 public sealed record CreateGameRequest(string Type, JsonElement Content, string? Title = null);
 public sealed record SubmitAttemptRequest(string IdempotencyKey, JsonElement Answer);
@@ -198,6 +200,7 @@ public sealed record MatchingPlayable(PairView[] Left, PairView[] Right, Diction
 public sealed record MatchingAnswer(Dictionary<Guid, Guid> Matches);
 public sealed record SentencePlayable(Guid[] Tokens, Dictionary<Guid, string> Words, Guid[] CorrectOrder);
 public sealed record SentenceAnswer(Guid[] Tokens);
+public sealed record DictationAnswer(string Text);
 
 public interface IGameEngine
 {
@@ -215,7 +218,7 @@ public sealed class MathEngine : IGameEngine
     public Evaluation Evaluate(JsonElement content, JsonElement answer, JsonElement playable = default)
     {
         var expected = Parser.Parse(ReadString(content));
-        if (!answer.TryGetProperty("value", out var value) || !value.TryGetDecimal(out var actual)) throw new DomainException("La réponse doit contenir un nombre décimal nommé 'value'.");
+        if (!answer.TryGetProperty("value", out var value) || !value.TryGetDecimal(out var actual)) throw new DomainException("La rÃ©ponse doit contenir un nombre dÃ©cimal nommÃ© 'value'.");
         var correct = Math.Abs(expected - actual) <= 0.000001m;
         return new(correct, correct ? 1 : 0, 1, expected);
     }
@@ -234,9 +237,9 @@ public sealed class MatchingEngine : IGameEngine
     }
     public Evaluation Evaluate(JsonElement content, JsonElement answer, JsonElement playable = default)
     {
-        var pairs = Pairs(content); var submitted = answer.Deserialize<MatchingAnswer>(AnswerJsonOptions)?.Matches ?? throw new DomainException("La réponse doit contenir les associations 'matches'.");
+        var pairs = Pairs(content); var submitted = answer.Deserialize<MatchingAnswer>(AnswerJsonOptions)?.Matches ?? throw new DomainException("La rÃ©ponse doit contenir les associations 'matches'.");
         if (submitted.Count != pairs.Length) throw new DomainException("Soumettez une association pour chaque paire.");
-        if(playable.ValueKind==JsonValueKind.Undefined) throw new DomainException("État jouable manquant.",500);
+        if(playable.ValueKind==JsonValueKind.Undefined) throw new DomainException("Ã‰tat jouable manquant.",500);
         var play=playable.Deserialize<MatchingPlayable>()!;
         var score = submitted.Count(x => play.CorrectMatches.TryGetValue(x.Key,out var expected)&&expected==x.Value);
         return new(score == pairs.Length, score, pairs.Length, pairs.Select(p => new { p.Id, p.Left, p.Right }).ToArray());
@@ -250,10 +253,10 @@ public sealed class MatchingEngine : IGameEngine
             var left = item.TryGetProperty("left", out var l) ? l.GetString()?.Trim() : null;
             var right = item.TryGetProperty("right", out var r) ? r.GetString()?.Trim() : null;
             var id = item.TryGetProperty("id", out var i) && Guid.TryParse(i.GetString(), out var parsed) ? parsed : Guid.NewGuid();
-            if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right)) throw new DomainException("Chaque paire doit avoir un mot et une définition.");
+            if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right)) throw new DomainException("Chaque paire doit avoir un mot et une dÃ©finition.");
             rows.Add((id, left, right));
         }
-        if (rows.Select(x => x.Item1).Distinct().Count() != rows.Count || rows.Select(x => x.Item2).Distinct(StringComparer.OrdinalIgnoreCase).Count() != rows.Count || rows.Select(x => x.Item3).Distinct(StringComparer.OrdinalIgnoreCase).Count() != rows.Count) throw new DomainException("Les identifiants, mots et définitions doivent être uniques.");
+        if (rows.Select(x => x.Item1).Distinct().Count() != rows.Count || rows.Select(x => x.Item2).Distinct(StringComparer.OrdinalIgnoreCase).Count() != rows.Count || rows.Select(x => x.Item3).Distinct(StringComparer.OrdinalIgnoreCase).Count() != rows.Count) throw new DomainException("Les identifiants, mots et dÃ©finitions doivent Ãªtre uniques.");
         return rows.Select(x => (x.Item1, x.Item2, x.Item3)).ToArray();
     }
 }
@@ -271,8 +274,8 @@ public sealed class SentenceOrderingEngine : IGameEngine
     }
     public Evaluation Evaluate(JsonElement content, JsonElement answer, JsonElement playable = default)
     {
-        var source = Tokens(content); var submitted = answer.Deserialize<SentenceAnswer>(AnswerJsonOptions)?.Tokens ?? throw new DomainException("La réponse doit contenir la liste 'tokens'.");
-        if(playable.ValueKind==JsonValueKind.Undefined) throw new DomainException("État jouable manquant.",500);
+        var source = Tokens(content); var submitted = answer.Deserialize<SentenceAnswer>(AnswerJsonOptions)?.Tokens ?? throw new DomainException("La rÃ©ponse doit contenir la liste 'tokens'.");
+        if(playable.ValueKind==JsonValueKind.Undefined) throw new DomainException("Ã‰tat jouable manquant.",500);
         var play=playable.Deserialize<SentencePlayable>()!;
         var correct = submitted.SequenceEqual(play.CorrectOrder);
         return new(correct, correct ? source.Length : submitted.Length == source.Length ? source.Length - 1 : 0, source.Length, string.Join(" ", source));
@@ -283,8 +286,61 @@ public sealed class SentenceOrderingEngine : IGameEngine
         if (string.IsNullOrWhiteSpace(text)) throw new DomainException("Le contenu SENTENCE_ORDERING doit contenir 'sentence'.");
         // Keep punctuation attached to its word; whitespace separates movable tokens.
         var tokens = Regex.Split(text.Trim(), @"\s+");
-        if (tokens.Length < 2) throw new DomainException("La phrase doit contenir au moins deux éléments.");
+        if (tokens.Length < 2) throw new DomainException("La phrase doit contenir au moins deux Ã©lÃ©ments.");
         return tokens;
+    }
+}
+
+public sealed class DictationEngine : IGameEngine
+{
+    private static readonly JsonSerializerOptions AnswerJsonOptions = new(JsonSerializerDefaults.Web);
+    public GameType Type => GameType.DICTATION;
+
+    public void Validate(JsonElement content)
+    {
+        var sentence = ReadSentence(content);
+        if (sentence.Length > 500) throw new DomainException("Une dictée ne peut pas dépasser 500 caractères.");
+        if (sentence.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length < 2)
+            throw new DomainException("La dictée doit contenir au moins deux mots.");
+    }
+
+    // The sentence is returned only because browser SpeechSynthesis needs its plain text. The API
+    // still keeps evaluation, scoring, attempts, and correction authoritative on the server.
+    public object Generate(JsonElement content) => new { sentence = ReadSentence(content) };
+
+    public Evaluation Evaluate(JsonElement content, JsonElement answer, JsonElement playable = default)
+    {
+        var submitted = answer.Deserialize<DictationAnswer>(AnswerJsonOptions)?.Text;
+        if (string.IsNullOrWhiteSpace(submitted)) throw new DomainException("La réponse de dictée ne peut pas être vide.");
+        var expected = ReadSentence(content);
+        var correct = Normalize(submitted) == Normalize(expected);
+        return new(correct, correct ? 1 : 0, 1, expected);
+    }
+
+    public static string ReadSentence(JsonElement content)
+    {
+        var sentence = content.ValueKind == JsonValueKind.String
+            ? content.GetString()
+            : TryReadStringProperty(content, "sentence");
+        if (string.IsNullOrWhiteSpace(sentence)) throw new DomainException("Le contenu DICTATION doit contenir 'sentence'.");
+        return sentence.Trim();
+    }
+
+    private static string? TryReadStringProperty(JsonElement value, string name)
+    {
+        if (value.ValueKind != JsonValueKind.Object) return null;
+        foreach (var property in value.EnumerateObject())
+            if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase) && property.Value.ValueKind == JsonValueKind.String)
+                return property.Value.GetString();
+        return null;
+    }
+
+    private static string Normalize(string value)
+    {
+        var decomposed = value.Trim().Normalize(NormalizationForm.FormD);
+        var withoutMarks = new string(decomposed.Where(character =>
+            System.Globalization.CharUnicodeInfo.GetUnicodeCategory(character) != System.Globalization.UnicodeCategory.NonSpacingMark).ToArray());
+        return Regex.Replace(withoutMarks, @"[^\p{L}\p{N}]+", " ").Trim().ToLowerInvariant();
     }
 }
 
@@ -463,6 +519,15 @@ public sealed class EfGameCatalog(ActivitiesDbContext db) : IGameCatalog
     private static GameRecord ToRecord(GameRow x)=>new(x.Id,x.SpaceId,Enum.Parse<GameType>(x.Type),x.Title,x.Content,x.CreatedAt,x.UpdatedAt);
 }
 public interface ISpaceAccess { Task<bool> CanAccess(Guid spaceId, ClaimsPrincipal user, string activityType, CancellationToken ct); }
+public sealed class EduKidsApiSpaceAccess(EspacesApiAuthorization spaces) : ISpaceAccess
+{
+    public Task<bool> CanAccess(Guid spaceId, ClaimsPrincipal user, string activityType, CancellationToken ct) =>
+        user.IsInRole("Parent")
+            ? spaces.ParentOwnsSpaceWithActivity(spaceId, activityType, user, ct)
+            : user.IsInRole("Enfant")
+                ? spaces.ChildOwnsSpaceWithActivity(spaceId, activityType, user, ct)
+                : Task.FromResult(false);
+}
 public interface IProgressPublisher { Task<bool> Publish(GameSessionCompletedEvent message, CancellationToken ct); }
 // Intentionally reports failure until a real transport is configured, leaving the event pending in the outbox.
 public sealed class NoopProgressPublisher : IProgressPublisher { public Task<bool> Publish(GameSessionCompletedEvent message, CancellationToken ct) => Task.FromResult(false); }
@@ -475,25 +540,25 @@ public sealed class GameService(IGameCatalog catalog, IEnumerable<IGameEngine> e
     private TimeSpan InactivityTimeout => TimeSpan.FromMinutes(sessionOptions.Value.InactivityTimeoutMinutes);
     private TimeSpan Cooldown => TimeSpan.FromHours(sessionOptions.Value.FailureCooldownHours);
     private IGameEngine Engine(GameType t) => engines.Single(x => x.Type == t);
-    private static GameType ParseType(string type) => Enum.TryParse<GameType>(type, true, out var t) ? t : throw new DomainException("Type d'activité inconnu.");
-    private async Task Ensure(Guid space, ClaimsPrincipal user, GameType type, CancellationToken ct) { if (!await access.CanAccess(space, user, type.ToString(), ct)) throw new DomainException("Accès à l'espace ou à ce type d'activité refusé.", 403); }
+    private static GameType ParseType(string type) => Enum.TryParse<GameType>(type, true, out var t) ? t : throw new DomainException("Type d'activitÃ© inconnu.");
+    private async Task Ensure(Guid space, ClaimsPrincipal user, GameType type, CancellationToken ct) { if (!await access.CanAccess(space, user, type.ToString(), ct)) throw new DomainException("AccÃ¨s Ã  l'espace ou Ã  ce type d'activitÃ© refusÃ©.", 403); }
     public async Task<GameDto> Create(Guid s, CreateGameRequest r, ClaimsPrincipal u, CancellationToken ct) { var t = ParseType(r.Type); await Ensure(s,u,t,ct); Engine(t).Validate(r.Content); var now=clock.UtcNow; var g=new GameRecord(Guid.NewGuid(),s,t,r.Title,NormalizeContent(t,r.Content),now,now); await catalog.Save(g,ct); return Dto(g); }
     public async Task<List<GameDto>> List(Guid s,string type,ClaimsPrincipal u,CancellationToken ct) { var t=ParseType(type); await Ensure(s,u,t,ct); return (await catalog.List(s,ct)).Where(x=>x.Type==t).Select(Dto).ToList(); }
     public async Task<GameDto> Get(Guid s,Guid id,ClaimsPrincipal u,CancellationToken ct) { var g=await Required(s,id,ct); await Ensure(s,u,g.Type,ct); return Dto(g); }
     public async Task<GameDto> Update(Guid s,Guid id,CreateGameRequest r,ClaimsPrincipal u,CancellationToken ct) { var g=await Required(s,id,ct); var t=ParseType(r.Type); await Ensure(s,u,g.Type,ct); await Ensure(s,u,t,ct); Engine(t).Validate(r.Content); var n=g with {Type=t,Title=r.Title,Content=NormalizeContent(t,r.Content),UpdatedAt=clock.UtcNow}; await catalog.Save(n,ct); return Dto(n); }
-    public async Task Delete(Guid s,Guid id,ClaimsPrincipal u,CancellationToken ct) { var g=await Required(s,id,ct); await Ensure(s,u,g.Type,ct); if ((await catalog.Sessions(s,id,ct)).Any(x=>x.Status==SessionStatus.ACTIVE)) throw new DomainException("Le jeu possède une session active.",409); await catalog.Remove(g,ct); }
+    public async Task Delete(Guid s,Guid id,ClaimsPrincipal u,CancellationToken ct) { var g=await Required(s,id,ct); await Ensure(s,u,g.Type,ct); if ((await catalog.Sessions(s,id,ct)).Count > 0) throw new DomainException("Ce jeu possède un historique pédagogique et ne peut pas être supprimé.",409); await catalog.Remove(g,ct); }
     public async Task<SessionDto> Start(Guid s,Guid id,ClaimsPrincipal u,CancellationToken ct)
     {
         var g=await Required(s,id,ct); await Ensure(s,u,g.Type,ct); var existing=await catalog.Sessions(s,id,ct);
         for(var i=0;i<existing.Count;i++) if(existing[i].Status==SessionStatus.ACTIVE) existing[i]=await ExpireIfDue(existing[i],ct);
         var active=existing.FirstOrDefault(x=>x.Status==SessionStatus.ACTIVE); if(active!=null) return SessionDtoOf(active,true);
-        var blocked=existing.Where(IsReplayBlocked).OrderByDescending(x=>x.NextAvailableAt).FirstOrDefault(); if(blocked!=null) throw new DomainException($"Jeu indisponible jusqu'à {blocked.NextAvailableAt:O}.",409);
+        var blocked=existing.Where(IsReplayBlocked).OrderByDescending(x=>x.NextAvailableAt).FirstOrDefault(); if(blocked!=null) throw new DomainException($"Jeu indisponible jusqu'Ã  {blocked.NextAvailableAt:O}.",409);
         var session=new SessionRecord{SpaceId=s,Game=g,CreatedAt=clock.UtcNow,GameTitleSnapshot=g.Title,GameTypeSnapshot=g.Type.ToString(),ExerciseContentSnapshot=g.Content,PlayJson=JsonSerializer.Serialize(Engine(g.Type).Generate(JsonDocument.Parse(g.Content).RootElement))};
         if(!await catalog.SaveSession(session,ct))
         {
             var concurrent=(await catalog.Sessions(s,id,ct)).FirstOrDefault(x=>x.Status==SessionStatus.ACTIVE);
             if(concurrent!=null) return SessionDtoOf(concurrent,true);
-            throw new DomainException("La session a été créée simultanément. Réessayez.",409);
+            throw new DomainException("La session a Ã©tÃ© crÃ©Ã©e simultanÃ©ment. RÃ©essayez.",409);
         }
         return SessionDtoOf(session,true);
     }
@@ -503,7 +568,7 @@ public sealed class GameService(IGameCatalog catalog, IEnumerable<IGameEngine> e
     {
         if(string.IsNullOrWhiteSpace(r.IdempotencyKey)||r.IdempotencyKey.Length>128) throw new DomainException("Un IdempotencyKey valide est requis."); var x=await catalog.GetSession(sid,ct); if(x==null||x.SpaceId!=s) throw new DomainException("Session introuvable.",404); await Ensure(s,u,x.EffectiveGameType,ct); x=await ExpireIfDue(x,ct);
         AttemptDto dto;
-        lock(x) { if(x.Idempotency.TryGetValue(r.IdempotencyKey,out var cached)) return cached; if(x.Status!=SessionStatus.ACTIVE) throw new DomainException("Cette session est terminée.",409); if(x.Attempts.Count>=MaxAttempts) throw new DomainException("Limite de tentatives atteinte.",409);
+        lock(x) { if(x.Idempotency.TryGetValue(r.IdempotencyKey,out var cached)) return cached; if(x.Status!=SessionStatus.ACTIVE) throw new DomainException("Cette session est terminÃ©e.",409); if(x.Attempts.Count>=MaxAttempts) throw new DomainException("Limite de tentatives atteinte.",409);
             var result=Engine(x.EffectiveGameType).Evaluate(JsonDocument.Parse(x.EffectiveExerciseContent).RootElement,r.Answer,JsonDocument.Parse(x.PlayJson).RootElement); var now=clock.UtcNow; var number=x.Attempts.Count+1; var attemptId=Guid.NewGuid(); x.Attempts.Add(new(number,r.Answer.GetRawText(),result,now,attemptId));
             if(result.Correct) { x.Status=SessionStatus.SUCCESS; x.CompletedAt=now; x.NextAvailableAt=null; x.InactivityDeadlineAt=null; }
             else if(number==MaxAttempts) { x.Status=SessionStatus.FAILED; x.CompletedAt=now; x.NextAvailableAt=now+Cooldown; x.InactivityDeadlineAt=null; }
@@ -515,7 +580,7 @@ public sealed class GameService(IGameCatalog catalog, IEnumerable<IGameEngine> e
         {
             var current=await catalog.GetSession(x.Id,ct);
             if(current?.Idempotency.TryGetValue(r.IdempotencyKey,out var duplicate)==true) return duplicate;
-            throw new DomainException("La session a été modifiée par une autre requête. Réessayez.",409);
+            throw new DomainException("La session a Ã©tÃ© modifiÃ©e par une autre requÃªte. RÃ©essayez.",409);
         }
         return dto;
     }
@@ -575,7 +640,12 @@ public sealed class GameService(IGameCatalog catalog, IEnumerable<IGameEngine> e
         && session.NextAvailableAt is { } nextAvailableAt
         && nextAvailableAt > clock.UtcNow;
     private async Task<GameRecord> Required(Guid s,Guid id,CancellationToken ct)=>await catalog.Find(s,id,ct)??throw new DomainException("Jeu introuvable.",404);
-    private static string NormalizeContent(GameType t,JsonElement c) => t==GameType.MATCHING ? JsonSerializer.Serialize(new { pairs=c.GetProperty("pairs").EnumerateArray().Select(p=>new { id=Guid.NewGuid(), left=p.GetProperty("left").GetString(), right=p.GetProperty("right").GetString() }) }) : c.GetRawText();
+private static string NormalizeContent(GameType t,JsonElement c) => t switch
+{
+    GameType.MATCHING => JsonSerializer.Serialize(new { pairs=c.GetProperty("pairs").EnumerateArray().Select(p=>new { id=Guid.NewGuid(), left=p.GetProperty("left").GetString(), right=p.GetProperty("right").GetString() }) }),
+    GameType.DICTATION => JsonSerializer.Serialize(new { sentence = DictationEngine.ReadSentence(c) }),
+    _ => c.GetRawText()
+};
     private static GameDto Dto(GameRecord g)=>new(g.Id,g.SpaceId,g.Type.ToString(),g.Title,JsonDocument.Parse(g.Content).RootElement.Clone(),g.CreatedAt,g.UpdatedAt);
     private SessionDto SessionDtoOf(SessionRecord x,bool includeGame)
     {
@@ -701,14 +771,14 @@ public sealed class DomainException(string message, int status = 400) : Exceptio
 
 internal static class Parser
 {
-    public static decimal Parse(string expression) { if(string.IsNullOrWhiteSpace(expression)||expression.Length>256) throw new DomainException("Expression vide ou trop longue."); var p=new ExpressionParser(expression); var result=p.Sum(); p.Space(); if(!p.End) throw new DomainException($"Caractère inattendu à la position {p.Position+1}."); return result; }
+    public static decimal Parse(string expression) { if(string.IsNullOrWhiteSpace(expression)||expression.Length>256) throw new DomainException("Expression vide ou trop longue."); var p=new ExpressionParser(expression); var result=p.Sum(); p.Space(); if(!p.End) throw new DomainException($"CaractÃ¨re inattendu Ã  la position {p.Position+1}."); return result; }
     private sealed class ExpressionParser(string text)
     {
         private int i; public int Position=>i; public bool End=>i>=text.Length; public void Space(){while(!End&&char.IsWhiteSpace(text[i]))i++;}
         public decimal Sum(){var v=Product(); while(true){Space(); if(Take('+'))v=checked(v+Product()); else if(Take('-'))v=checked(v-Product()); else return v;}}
-        private decimal Product(){var v=Unary(); while(true){Space(); if(Take('*'))v=checked(v*Unary()); else if(Take('/')){var d=Unary();if(d==0)throw new DomainException("La division par zéro est interdite.");v=checked(v/d);}else return v;}}
-        private decimal Unary(){Space(); if(Take('+'))return Unary(); if(Take('-'))return -Unary(); if(Take('(')){var v=Sum();Space();if(!Take(')'))throw new DomainException("Parenthèse fermante manquante.");return v;} return Number();}
-        private decimal Number(){Space();var start=i;var dot=false;while(!End&&(char.IsDigit(text[i])||text[i]=='.')){if(text[i]=='.'){if(dot)break;dot=true;}i++;}if(start==i||!decimal.TryParse(text[start..i],NumberStyles.AllowDecimalPoint,CultureInfo.InvariantCulture,out var n))throw new DomainException($"Nombre attendu à la position {i+1}.");return n;}
+        private decimal Product(){var v=Unary(); while(true){Space(); if(Take('*'))v=checked(v*Unary()); else if(Take('/')){var d=Unary();if(d==0)throw new DomainException("La division par zÃ©ro est interdite.");v=checked(v/d);}else return v;}}
+        private decimal Unary(){Space(); if(Take('+'))return Unary(); if(Take('-'))return -Unary(); if(Take('(')){var v=Sum();Space();if(!Take(')'))throw new DomainException("ParenthÃ¨se fermante manquante.");return v;} return Number();}
+        private decimal Number(){Space();var start=i;var dot=false;while(!End&&(char.IsDigit(text[i])||text[i]=='.')){if(text[i]=='.'){if(dot)break;dot=true;}i++;}if(start==i||!decimal.TryParse(text[start..i],NumberStyles.AllowDecimalPoint,CultureInfo.InvariantCulture,out var n))throw new DomainException($"Nombre attendu Ã  la position {i+1}.");return n;}
         private bool Take(char c){if(!End&&text[i]==c){i++;return true;}return false;}
     }
 }

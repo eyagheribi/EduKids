@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using Comptes.Api;
+using EduKids.Security;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -9,7 +10,8 @@ using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddDbContext<ComptesDbContext>(o => o.UseSqlite("Data Source=comptes.db"));
+builder.Services.AddDbContext<ComptesDbContext>(o =>
+    o.UseSqlite(builder.Configuration.GetConnectionString("Comptes") ?? "Data Source=comptes.db"));
 
 builder.Services.AddIdentityCore<Parent>(o => o.Password.RequireNonAlphanumeric = false)
     .AddEntityFrameworkStores<ComptesDbContext>();
@@ -17,19 +19,7 @@ builder.Services.AddIdentityCore<Parent>(o => o.Password.RequireNonAlphanumeric 
 var cle = builder.Configuration["Jwt:Key"]!;
 var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(cle));
 
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(o =>
-    {
-        o.MapInboundClaims = false;
-        o.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = false,
-            ValidateAudience = false,
-            IssuerSigningKey = signingKey,
-            NameClaimType = "sub",
-            RoleClaimType = "role"
-        };
-    });
+builder.Services.AddEduKidsJwtBearer(builder.Configuration);
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
@@ -40,7 +30,7 @@ using (var scope = app.Services.CreateScope())
 app.UseAuthentication();
 app.UseAuthorization();
 
-// CRÉER UN COMPTE
+// CRÃ‰ER UN COMPTE
 app.MapPost("/auth/register", async (RegisterDto dto, UserManager<Parent> users) =>
 {
     var parent = new Parent

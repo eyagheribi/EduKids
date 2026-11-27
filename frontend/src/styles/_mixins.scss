@@ -1,0 +1,54 @@
+// Shared Sass helpers. Use from components with: @use 'mixins' as m;
+@use 'sass:map';
+
+$breakpoints: (
+  xs: 480px,
+  sm: 640px,
+  md: 900px,
+  lg: 1180px,
+  xl: 1440px,
+);
+
+/// Styles applied below the given breakpoint (max-width).
+@mixin down($bp) {
+  @media (max-width: map.get($breakpoints, $bp) - 0.02px) {
+    @content;
+  }
+}
+
+/// Styles applied from the given breakpoint (min-width).
+@mixin up($bp) {
+  @media (min-width: map.get($breakpoints, $bp)) {
+    @content;
+  }
+}
+
+@mixin focus-ring($offset: 3px) {
+  outline: 3px solid var(--ek-purple-300);
+  outline-offset: $offset;
+}
+
+@mixin reset-button {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+@mixin card($padding: 1.5rem) {
+  background: var(--ek-surface);
+  border: 1px solid var(--ek-border);
+  border-radius: var(--ek-radius-lg);
+  box-shadow: var(--ek-shadow-sm);
+  padding: $padding;
+}
+
+@mixin truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

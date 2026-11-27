@@ -1,0 +1,153 @@
+@use 'mixins' as m;
+
+:host {
+  display: block;
+}
+
+.demo {
+  position: relative;
+  display: grid;
+  gap: 1.5rem;
+  overflow: hidden;
+  border: 2px dashed var(--ek-yellow-200);
+  background:
+    radial-gradient(circle at 100% 0%, var(--ek-yellow-50), transparent 45%),
+    var(--ek-surface);
+}
+
+.head {
+  display: grid;
+  justify-items: start;
+  gap: 0.6rem;
+
+  h3 {
+    font-size: 1.45rem;
+  }
+}
+
+.lead {
+  max-width: 46rem;
+  color: var(--ek-text-soft);
+  font-weight: 600;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2rem;
+}
+
+.form {
+  display: grid;
+  gap: 1.15rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 2.2rem minmax(0, 1fr);
+  gap: 0.85rem;
+
+  &__num {
+    display: grid;
+    place-items: center;
+    width: 2.2rem;
+    height: 2.2rem;
+    border-radius: 50%;
+    background: var(--ek-yellow-100);
+    color: var(--ek-yellow-700);
+    font-family: var(--ek-font-display);
+    font-weight: 600;
+  }
+}
+
+.ek-textarea,
+.ek-input {
+  opacity: 0.85;
+  cursor: not-allowed;
+}
+
+.ek-textarea {
+  min-height: 4.5rem;
+}
+
+.player {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  min-height: 3.1rem;
+  padding: 0.35rem 1rem 0.35rem 0.4rem;
+  border: 1.5px solid var(--ek-border-strong);
+  border-radius: var(--ek-radius-pill);
+  background: var(--ek-surface-soft);
+  opacity: 0.85;
+}
+
+.wave {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  height: 2rem;
+  overflow: hidden;
+
+  i {
+    flex: none;
+    width: 4px;
+    border-radius: 4px;
+    background: var(--ek-purple-300);
+  }
+}
+
+.time {
+  color: var(--ek-text-soft);
+  font-weight: 800;
+  font-size: 0.88rem;
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  padding-left: 3.05rem;
+}
+
+.note {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--ek-yellow-700);
+  font-weight: 800;
+  font-size: 0.9rem;
+}
+
+.art {
+  align-self: end;
+}
+
+@include m.down(md) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .art {
+    display: none;
+  }
+}
+
+@include m.down(xs) {
+  .step {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.4rem;
+  }
+
+  .footer {
+    padding-left: 0;
+  }
+}

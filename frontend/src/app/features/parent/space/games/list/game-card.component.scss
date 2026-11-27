@@ -1,0 +1,254 @@
+@use 'mixins' as m;
+
+:host {
+  --tone-50: var(--ek-purple-50);
+  --tone-100: var(--ek-purple-100);
+  --tone-200: var(--ek-purple-200);
+  --tone-ink: var(--ek-purple-800);
+  --tone-accent: var(--ek-purple-500);
+
+  display: block;
+  container-type: inline-size;
+  min-width: 0;
+}
+
+:host([data-tone='green']) {
+  --tone-50: var(--ek-green-50);
+  --tone-100: var(--ek-green-100);
+  --tone-200: var(--ek-green-200);
+  --tone-ink: var(--ek-green-800);
+  --tone-accent: var(--ek-green-500);
+}
+
+:host([data-tone='blue']) {
+  --tone-50: var(--ek-blue-50);
+  --tone-100: var(--ek-blue-100);
+  --tone-200: var(--ek-blue-200);
+  --tone-ink: var(--ek-blue-700);
+  --tone-accent: var(--ek-blue-500);
+}
+
+:host([data-tone='yellow']) {
+  --tone-50: var(--ek-yellow-50);
+  --tone-100: var(--ek-yellow-100);
+  --tone-200: var(--ek-yellow-200);
+  --tone-ink: var(--ek-yellow-700);
+  --tone-accent: var(--ek-yellow-500);
+}
+
+.card {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 1rem;
+  height: 100%;
+  padding: 1.25rem 1.35rem 1.3rem;
+  overflow: hidden;
+  border: 1px solid var(--ek-border);
+  border-radius: var(--ek-radius-lg);
+  background: var(--ek-surface);
+  box-shadow: var(--ek-shadow-sm);
+  transition:
+    transform var(--ek-duration) var(--ek-ease),
+    box-shadow var(--ek-duration) var(--ek-ease),
+    opacity var(--ek-duration) var(--ek-ease);
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto;
+    height: 5px;
+    background: linear-gradient(90deg, var(--tone-accent), var(--tone-200));
+  }
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--ek-shadow);
+  }
+}
+
+:host(.is-busy) .card {
+  opacity: 0.7;
+}
+
+.head {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.title {
+  font-size: 1.22rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+
+  &.is-untitled {
+    color: var(--ek-text-soft);
+    font-style: italic;
+  }
+}
+
+.dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.9rem;
+  color: var(--ek-text-soft);
+  font-size: 0.84rem;
+  font-weight: 700;
+
+  time {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+}
+
+.preview {
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 0.6rem;
+  min-height: 6.5rem;
+  padding: 0.9rem 1rem;
+  border-radius: var(--ek-radius);
+  background: var(--tone-50);
+  min-width: 0;
+}
+
+.expr {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-self: center;
+  justify-content: center;
+  gap: 0.2rem 0.5rem;
+  max-width: 100%;
+  padding: 0.55rem 1.25rem;
+  border: 2px solid var(--tone-200);
+  border-radius: var(--ek-radius-pill);
+  background: #fff;
+  color: var(--ek-ink);
+  font-family: var(--ek-font-display);
+  font-size: clamp(1.35rem, 6cqi, 1.8rem);
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  box-shadow: 0 3px 0 var(--tone-100);
+
+  &__text {
+    overflow-wrap: anywhere;
+  }
+
+  &__eq {
+    color: var(--tone-accent);
+  }
+}
+
+.count {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--tone-ink);
+  font-family: var(--ek-font-display);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.pairs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+  padding: 0.3rem 0.75rem;
+  border: 1.5px solid var(--tone-200);
+  border-radius: var(--ek-radius-pill);
+  background: #fff;
+  color: var(--ek-ink);
+  font-size: 0.88rem;
+  font-weight: 800;
+
+  &__left,
+  &__right {
+    @include m.truncate;
+    max-width: 9rem;
+  }
+
+  &__link {
+    color: var(--tone-accent);
+    font-weight: 900;
+  }
+
+  &--more {
+    color: var(--tone-ink);
+    background: var(--tone-100);
+  }
+}
+
+.sentence {
+  margin: 0;
+  color: var(--ek-ink);
+  font-family: var(--ek-font-display);
+  font-size: 1.15rem;
+  font-weight: 500;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.unreadable {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--ek-red-600);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  padding-top: 0.15rem;
+}
+
+.delete {
+  margin-left: auto;
+}
+
+.spin {
+  animation: ek-game-card-spin 1s linear infinite;
+}
+
+@keyframes ek-game-card-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Narrow cards (phones): the delete button keeps its accessible name but shows only its icon. */
+@container (max-width: 380px) {
+  .delete {
+    width: 2.35rem;
+    min-width: 2.35rem;
+    padding: 0;
+  }
+
+  .delete__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+}

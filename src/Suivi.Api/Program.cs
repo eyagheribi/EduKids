@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Suivi.Api.Application;
@@ -6,6 +7,7 @@ using Suivi.Api.Domain.Exceptions;
 using Suivi.Api.Infrastructure.Messaging;
 using Suivi.Api.Infrastructure.Persistence;
 using Suivi.Api.Infrastructure.Security;
+using EduKids.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -17,6 +19,10 @@ builder.Services.AddSwaggerGen(c =>
 
 builder.Services.AddDbContext<SuiviDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("Suivi") ?? "Data Source=suivi.db"));
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddHttpClient();
+builder.Services.AddScoped<EspacesApiAuthorization>();
+builder.Services.AddScoped<ISuiviSpaceAccess, EduKidsSuiviSpaceAccess>();
 
 builder.Services.AddScoped<SessionIngestionService>();
 builder.Services.AddScoped<ISessionIngestionService>(services =>
@@ -40,24 +46,13 @@ builder.Services
 builder.Services.AddSingleton<GameSessionCompletedMessageProcessor>();
 builder.Services.AddHostedService<GameSessionCompletedConsumer>();
 
-// Auth: dev-only test scheme; production must wire Espaces.Api JWT.
+var authentication = builder.Services.AddEduKidsJwtBearer(builder.Configuration);
 if (builder.Environment.IsDevelopment())
 {
     builder.Services.AddSingleton<SuiviDevCredentialValidator>();
-    builder.Services.AddSingleton<ISuiviSpaceAccess, DevelopmentSuiviSpaceAccess>();
-    builder.Services
-        .AddAuthentication(opts =>
-        {
-            opts.DefaultAuthenticateScheme = SuiviDevAuth.Scheme;
-            opts.DefaultChallengeScheme = SuiviDevAuth.Scheme;
-        })
-        .AddScheme<AuthenticationSchemeOptions, SuiviDevAuthHandler>(SuiviDevAuth.Scheme, _ => { });
-    builder.Services.AddAuthorization();
+    authentication.AddScheme<AuthenticationSchemeOptions, SuiviDevAuthHandler>(SuiviDevAuth.Scheme, _ => { });
 }
-else
-{
-    builder.Services.AddSingleton<ISuiviSpaceAccess, DenyAllSuiviSpaceAccess>();
-}
+builder.Services.AddAuthorization(options => options.AddPolicy("ParentOnly", policy => policy.RequireRole("Parent")));
 
 var app = builder.Build();
 
@@ -73,15 +68,13 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment())
+    app.UseHttpsRedirection();
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseAuthentication();
-    app.UseAuthorization();
-}
+app.UseAuthentication();
+app.UseAuthorization();
 
-// ── Global error handling ─────────────────────────────────────────────────────
+// â”€â”€ Global error handling â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.Use(async (ctx, next) =>
 {
     try
@@ -109,15 +102,14 @@ app.Use(async (ctx, next) =>
     }
 });
 
-// ── Health ────────────────────────────────────────────────────────────────────
+// â”€â”€ Health â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.MapGet("/health", () => Results.Ok(new { status = "Healthy" }))
     .WithTags("Infrastructure");
 
-// ── Progress API ──────────────────────────────────────────────────────────────
+// â”€â”€ Progress API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 var progress = app.MapGroup("/api/progress");
 
-if (app.Environment.IsDevelopment())
-    progress.RequireAuthorization();
+progress.RequireAuthorization("ParentOnly");
 
 // Summary
 progress.MapGet("/spaces/{spaceId:guid}/summary",
@@ -179,7 +171,7 @@ progress.MapGet("/spaces/{spaceId:guid}/statistics/by-type",
         return Results.Ok(await svc.GetStatsByTypeAsync(spaceId, ct));
     });
 
-// ── Dev-only event injection endpoint ────────────────────────────────────────
+// â”€â”€ Dev-only event injection endpoint â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 if (app.Environment.IsDevelopment())
 {
     app.MapPost("/api/dev/events/game-session-completed",
@@ -194,7 +186,7 @@ if (app.Environment.IsDevelopment())
                 ? Results.Created($"/api/progress/spaces/{evt.SpaceId}/sessions/{evt.SessionId}", new { evt.EventId, evt.SessionId })
                 : Results.Ok(new { message = "Event already processed (idempotent).", evt.EventId, evt.SessionId });
         })
-        .RequireAuthorization()
+        .RequireAuthorization("ParentOnly")
         .WithTags("Dev")
         .WithSummary("[DEV ONLY] Inject a GameSessionCompleted event for Postman testing.");
 }
@@ -202,3 +194,9 @@ if (app.Environment.IsDevelopment())
 app.Run();
 
 public partial class Program;
+
+public sealed class EduKidsSuiviSpaceAccess(EspacesApiAuthorization spaces) : ISuiviSpaceAccess
+{
+    public Task<bool> CanAccess(Guid spaceId, System.Security.Claims.ClaimsPrincipal user, CancellationToken ct) =>
+        spaces.ParentOwnsSpace(spaceId, user, ct);
+}

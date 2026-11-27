@@ -51,4 +51,35 @@ public class EngineTests
         Assert.Equal(4, play.Words.Count);
         Assert.True(result.Correct);
     }
+
+    [Fact]
+    public void Dictation_EvaluatesTextWithoutAccentAndPunctuationDifferences()
+    {
+        var engine = new DictationEngine();
+        var content = Json("{\"sentence\":\"L'été arrive, bientôt !\"}");
+        engine.Validate(content);
+        var playable = Json(JsonSerializer.Serialize(engine.Generate(content)));
+        Assert.Equal("L'été arrive, bientôt !", playable.GetProperty("sentence").GetString());
+
+        var result = engine.Evaluate(content, Json("{\"text\":\"l ete arrive bientot\"}"), playable);
+        Assert.True(result.Correct);
+        Assert.Equal(1, result.Score);
+        Assert.Equal(1, result.MaxScore);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"sentence\":\"Bonjour\"}")]
+    public void Dictation_RejectsMissingOrTooShortPhrases(string raw) =>
+        Assert.Throws<DomainException>(() => new DictationEngine().Validate(Json(raw)));
+
+    [Fact]
+    public void Dictation_ScoresIncorrectAnswerAndReturnsExpectedTextForTerminalCorrection()
+    {
+        var content = Json("{\"sentence\":\"La mer est calme.\"}");
+        var result = new DictationEngine().Evaluate(content, Json("{\"text\":\"La mer est chaude.\"}"));
+        Assert.False(result.Correct);
+        Assert.Equal(0, result.Score);
+        Assert.Equal("La mer est calme.", Assert.IsType<string>(result.Correction));
+    }
 }

@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using EduKids.Contracts;
 
 namespace Espaces.Api.Controllers;
 
@@ -12,7 +13,7 @@ namespace Espaces.Api.Controllers;
 public class EspacesController : ControllerBase
 {
     private readonly EspacesDbContext _db;
-    private static readonly string[] TypesValides = { "Dictee", "Maths", "Association" };
+    private static readonly string[] TypesValides = ActivityTypes.Categories.ToArray();
 
     public EspacesController(EspacesDbContext db) => _db = db;
 
@@ -23,7 +24,7 @@ public class EspacesController : ControllerBase
             return BadRequest("Le nom de l'enfant est obligatoire.");
 
         if (dto.Activites.Count == 0 || dto.Activites.Any(a => !TypesValides.Contains(a)))
-            return BadRequest("Types valides : Dictee, Maths, Association.");
+            return BadRequest(new { message = "Choisissez au moins une catégorie valide.", typesValides = TypesValides });
 
         var espace = new EspaceEnfant
         {
@@ -90,7 +91,7 @@ public class EspacesController : ControllerBase
         if (dto.Activites is not null)
         {
             if (dto.Activites.Count == 0 || dto.Activites.Any(a => !TypesValides.Contains(a)))
-                return BadRequest("Types valides : Dictee, Maths, Association.");
+                return BadRequest(new { message = "Choisissez au moins une catégorie valide.", typesValides = TypesValides });
             e.TypesActivites = string.Join(",", dto.Activites.Distinct());
         }
 

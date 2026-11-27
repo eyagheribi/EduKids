@@ -1,0 +1,216 @@
+<section class="ek-card history" aria-labelledby="history-title" #top>
+  <header class="history__head">
+    <h2 class="ek-card__title" id="history-title">
+      <span class="title-icon"><ek-icon name="history" [size]="26" [strokeWidth]="2.4" /></span>
+      Historique des sessions
+    </h2>
+  </header>
+
+  <form class="filters" [formGroup]="form" (submit)="$event.preventDefault()" aria-label="Filtrer l’historique des sessions">
+    <div class="ek-field">
+      <label class="ek-label" for="history-type">Catégorie</label>
+      <select id="history-type" class="ek-select" formControlName="gameType">
+        <option value="">Toutes</option>
+        @for (type of gameTypes; track type.value) {
+          <option [value]="type.value">{{ type.label }}</option>
+        }
+      </select>
+    </div>
+    <div class="ek-field">
+      <label class="ek-label" for="history-status">Statut</label>
+      <select id="history-status" class="ek-select" formControlName="finalStatus">
+        <option value="">Tous</option>
+        @for (status of statuses; track status.value) {
+          <option [value]="status.value">{{ status.label }}</option>
+        }
+      </select>
+    </div>
+    <div class="ek-field">
+      <label class="ek-label" for="history-from">Du</label>
+      <input id="history-from" class="ek-input" type="date" formControlName="from" />
+    </div>
+    <div class="ek-field">
+      <label class="ek-label" for="history-to">Au</label>
+      <input
+        id="history-to"
+        class="ek-input"
+        type="date"
+        formControlName="to"
+        [attr.aria-invalid]="rangeError() ? true : null"
+        [attr.aria-describedby]="rangeError() ? 'history-range-error' : null"
+      />
+    </div>
+    <div class="ek-field">
+      <label class="ek-label" for="history-sort">Tri</label>
+      <select id="history-sort" class="ek-select" formControlName="sortOrder">
+        <option value="desc">Plus récentes d’abord</option>
+        <option value="asc">Plus anciennes d’abord</option>
+      </select>
+    </div>
+    <div class="filters__reset">
+      <button type="button" class="ek-btn ek-btn--soft ek-btn--sm" (click)="reset()" [disabled]="!filtered()">
+        <ek-icon name="undo" [size]="16" /> Réinitialiser
+      </button>
+    </div>
+  </form>
+
+  @if (rangeError(); as message) {
+    <p class="ek-field__error range-error" id="history-range-error" role="alert">
+      <ek-icon name="alert" [size]="16" /> {{ message }}
+    </p>
+  }
+
+  <div class="results" [attr.aria-busy]="history.loading()">
+    <p class="ek-visually-hidden" aria-live="polite">{{ liveMessage() }}</p>
+
+    @if (rangeError()) {
+      <ek-empty-state
+        icon="calendar"
+        title="Période à corriger"
+        text="Choisissez une date de début antérieure à la date de fin pour afficher les sessions."
+      />
+    } @else if (history.error()) {
+      <ek-error-state
+        title="Impossible de charger l’historique"
+        [error]="history.error()"
+        (retry)="history.retry()"
+      />
+    } @else if (!history.data()) {
+      <div class="skeleton" aria-hidden="true">
+        @for (row of skeletonRows; track row) {
+          <div class="skeleton__row">
+            <span class="ek-skeleton skeleton__icon"></span>
+            <span class="ek-skeleton skeleton__line"></span>
+            <span class="ek-skeleton skeleton__chip"></span>
+          </div>
+        }
+      </div>
+    } @else if (rows().length === 0) {
+      @if (filtered()) {
+        <ek-empty-state
+          icon="filter"
+          title="Aucune session ne correspond à ces filtres"
+          text="Modifiez la catégorie, le statut ou la période, ou réinitialisez les filtres."
+        >
+          <button type="button" class="ek-btn ek-btn--outline ek-btn--sm" (click)="reset()">
+            <ek-icon name="undo" [size]="16" /> Réinitialiser les filtres
+          </button>
+        </ek-empty-state>
+      } @else {
+        <ek-empty-state
+          icon="history"
+          title="Aucune session terminée pour l’instant"
+          text="Chaque partie terminée (réussie, échouée ou inachevée) apparaîtra ici avec son score et ses tentatives."
+        />
+      }
+    } @else {
+      <div class="list" [class.is-refreshing]="history.loading()">
+        <!-- Table (large screens) -->
+        <div class="ek-table-wrap table-view">
+          <table class="ek-table">
+            <caption class="ek-visually-hidden">
+              Sessions terminées. {{ pageInfo()?.label }}
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Jeu</th>
+                <th scope="col">Catégorie</th>
+                <th scope="col">Date et heure</th>
+                <th scope="col">Score</th>
+                <th scope="col">Tentatives</th>
+                <th scope="col">Statut</th>
+                <th scope="col"><span class="ek-visually-hidden">Détail</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of rows(); track row.session.sessionId) {
+                <tr class="is-clickable" (click)="openRow($event, row)">
+                  <td>
+                    <div class="game">
+                      @if (row.categoryId) {
+                        <ek-category-icon [category]="row.categoryId" [size]="34" />
+                      } @else {
+                        <span class="game__fallback"><ek-icon name="gamepad" [size]="22" /></span>
+                      }
+                      <a class="game__link" [routerLink]="row.link" [attr.aria-label]="row.ariaLabel">{{ row.title }}</a>
+                    </div>
+                  </td>
+                  <td>
+                    <span [class]="'ek-chip ek-chip--' + row.tone">{{ row.categoryLabel }}</span>
+                  </td>
+                  <td class="date">{{ row.session.completedAt | ekRelativeDate }}</td>
+                  <td>
+                    <ek-score-chip [score]="row.score" [kind]="row.scoreKind" />
+                  </td>
+                  <td class="attempts">{{ row.attempts }}</td>
+                  <td>
+                    <span [class]="'ek-chip ek-chip--' + row.status.tone">
+                      <ek-icon [name]="row.status.icon" [size]="15" /> {{ row.status.label }}
+                    </span>
+                  </td>
+                  <td class="chevron"><ek-icon name="chevron-right" [size]="22" [strokeWidth]="2.6" /></td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Cards (small screens) -->
+        <ul class="cards-view" role="list">
+          @for (row of rows(); track row.session.sessionId) {
+            <li>
+              <a class="session-card" [routerLink]="row.link" [attr.aria-label]="row.ariaLabel">
+                <span class="session-card__icon">
+                  @if (row.categoryId) {
+                    <ek-category-icon [category]="row.categoryId" [size]="38" />
+                  } @else {
+                    <ek-icon name="gamepad" [size]="24" />
+                  }
+                </span>
+                <span class="session-card__main">
+                  <span class="session-card__title">{{ row.title }}</span>
+                  <span class="session-card__meta">
+                    {{ row.session.completedAt | ekRelativeDate }} · {{ row.categoryLabel }}
+                  </span>
+                  <span class="session-card__chips">
+                    <span [class]="'ek-chip ek-chip--sm ek-chip--' + row.status.tone">
+                      <ek-icon [name]="row.status.icon" [size]="13" /> {{ row.status.label }}
+                    </span>
+                    <ek-score-chip [score]="row.score" [kind]="row.scoreKind" [small]="true" />
+                    <span class="session-card__attempts">
+                      <ek-icon name="refresh" [size]="14" /> {{ row.attempts }}
+                    </span>
+                  </span>
+                </span>
+                <ek-icon class="session-card__chevron" name="chevron-right" [size]="22" [strokeWidth]="2.6" />
+              </a>
+            </li>
+          }
+        </ul>
+      </div>
+
+      @if (pageInfo(); as info) {
+        <nav class="pager" aria-label="Pagination de l’historique">
+          <button
+            type="button"
+            class="ek-btn ek-btn--outline ek-btn--sm"
+            (click)="goTo(info.page - 1)"
+            [disabled]="info.page <= 1 || history.loading()"
+          >
+            <ek-icon name="chevron-left" [size]="18" /> Précédent
+          </button>
+          <span class="pager__label">{{ info.label }}</span>
+          <button
+            type="button"
+            class="ek-btn ek-btn--outline ek-btn--sm"
+            (click)="goTo(info.page + 1)"
+            [disabled]="info.page >= info.totalPages || history.loading()"
+          >
+            Suivant <ek-icon name="chevron-right" [size]="18" />
+          </button>
+        </nav>
+      }
+    }
+  </div>
+</section>
+
