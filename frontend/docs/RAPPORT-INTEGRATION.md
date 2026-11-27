@@ -29,6 +29,8 @@ La suppression d’un jeu ayant une session renvoie maintenant `409` afin de pr�
 - Le mode démonstration parent est explicitement séparé du compte réel et présente des espaces exemples locaux. Le mode enfant de démonstration fournit des jeux locaux. Les écritures effectuées dans ces modes ne sont pas des données de compte.
 - Les écrans de suivi détaillé, notifications et certaines préférences restent des surfaces de démonstration; ils ne prétendent pas enregistrer des données réelles.
 - En développement, Angular relaie `/gateway/<service>` via `proxy.conf.json`. L’API doit être démarrée séparément pour les parcours réels.
+- `scripts/start-local.ps1` démarre les quatre API sur les ports isolés `15220`, `15092`, `15156`, `15102`, avec des bases SQLite sous `%TEMP%\EduKids-local-dev`. `scripts/start-local.ps1 -Stop` arrête uniquement les processus qu’il a démarrés. Les ports standards sont volontairement laissés aux services déjà présents sur la machine.
+- `scripts/smoke-local.ps1` exécute un scénario HTTP de bout en bout : compte parent, espace enfant, création de jeu, connexion par code, liste et partie gagnante, refus des accès mauvais rôle/espace, puis résumé Suivi.
 
 ## Vérifications exécutées
 
@@ -37,6 +39,7 @@ La suppression d’un jeu ayant une session renvoie maintenant `409` afin de pr�
 - `dotnet build EduKids.sln --no-restore` : réussi, 0 avertissement, 0 erreur.
 - Activites.Api.Tests : 53 réussis sur 53.
 - Suivi.Api.Tests : 51 réussis sur 51.
+- Smoke test HTTP isolé : réussi contre les quatre API lancées sur les ports temporaires; le scénario a utilisé des bases neuves dans `%TEMP%`.
 - Frontend servi sur `http://localhost:4200` et page d’accueil ouverte dans Edge.
 
-Ces résultats valident la compilation et les suites de tests existantes. Ils ne remplacent pas encore un scénario HTTP intégré avec bases de données isolées et tous les services lancés.
+Le smoke test valide la lecture autorisée du résumé Suivi, mais la publication RabbitMQ était désactivée sur l’instance locale; aucun événement de session n’a donc alimenté le résumé. Notifications.Api reste un squelette sans intégration utilisable.

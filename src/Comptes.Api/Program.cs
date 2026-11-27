@@ -10,7 +10,8 @@ using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddDbContext<ComptesDbContext>(o => o.UseSqlite("Data Source=comptes.db"));
+builder.Services.AddDbContext<ComptesDbContext>(o =>
+    o.UseSqlite(builder.Configuration.GetConnectionString("Comptes") ?? "Data Source=comptes.db"));
 
 builder.Services.AddIdentityCore<Parent>(o => o.Password.RequireNonAlphanumeric = false)
     .AddEntityFrameworkStores<ComptesDbContext>();

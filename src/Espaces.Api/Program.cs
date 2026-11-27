@@ -7,7 +7,8 @@ using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddDbContext<EspacesDbContext>(o => o.UseSqlite("Data Source=espaces.db"));
+builder.Services.AddDbContext<EspacesDbContext>(o =>
+    o.UseSqlite(builder.Configuration.GetConnectionString("Espaces") ?? "Data Source=espaces.db"));
 builder.Services.AddControllers();
 
 var cle = builder.Configuration["Jwt:Key"]!;

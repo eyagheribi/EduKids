@@ -1,9 +1,11 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
-
-// STUB — replaced by the feature implementation.
-@Component({
-  selector: 'ek-settings-page',
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `<p class="ek-muted">Paramètres (en construction)</p>`,
-})
-export class SettingsPage {}
+import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { RouterLink } from '@angular/router';
+import { SessionService } from '../../../core/auth/session.service';
+import { IconComponent } from '../../../shared/ui/icon/icon.component';
+@Component({selector:'ek-settings-page',imports:[RouterLink,IconComponent],changeDetection:ChangeDetectionStrategy.OnPush,template:`
+  <header><p>ESPACE PARENT</p><h1>Paramètres</h1><span>Informations de votre compte et options EduKids.</span></header>
+  <section><div class="icon"><ek-icon name="user-circle" [size]="26"/></div><div><h2>Compte parent</h2><p>{{email()}}</p><small>Les informations de profil sont fournies par le compte connecté.</small></div></section>
+  <section><div class="icon mint"><ek-icon name="bell" [size]="25"/></div><div><h2>Notifications</h2><p class="badge">Interface statique — service non disponible</p><small>Les alertes et préférences de notification seront activées lorsque Notifications.Api sera intégré.</small></div></section>
+  <section><div class="icon blue"><ek-icon name="users" [size]="25"/></div><div><h2>Espaces enfants</h2><p>Gérez les activités accessibles et les codes de connexion.</p><a routerLink="/parent/enfants">Ouvrir mes espaces →</a></div></section>
+`,styles:`:host{display:block;max-width:950px;margin:auto}header{padding:2rem 0 1.5rem}header>p{color:#795bac;font-size:.8rem;letter-spacing:.1em;font-weight:800}h1{margin:.3rem 0;color:#342b43;font-size:2.4rem}header span,section p,section small{color:#766f80}section{display:flex;align-items:flex-start;gap:1rem;background:white;padding:1.3rem;margin:.9rem 0;border:1px solid #eee8f5;border-radius:1rem;box-shadow:0 6px 20px #3021450a}.icon{display:grid;place-items:center;flex:0 0 3.1rem;height:3.1rem;border-radius:.9rem;background:#f1eafd;color:#7656aa}.mint{background:#e8f7e9;color:#3b8750}.blue{background:#e9f2fd;color:#527eb4}section h2{margin:.1rem 0;color:#3a3248;font-size:1.05rem}section p{margin:.3rem 0}.badge{display:inline-block;padding:.25rem .55rem;border-radius:1rem;background:#f6f1fc;color:#7656aa;font-size:.8rem;font-weight:750}section small{display:block;max-width:700px}section a{display:inline-block;margin-top:.2rem;color:#7655ad;font-weight:800;text-decoration:none}`})
+export class SettingsPage{private readonly session=inject(SessionService);protected readonly email=computed(()=>this.session.parent()?.email??'Compte non identifié')}

@@ -159,9 +159,8 @@ export const routes: Routes = [
       },
       {
         path: 'dictee',
-        title: 'Dictée (démonstration) — EduKids',
-        loadComponent: () =>
-          import('./features/child/dictation/dictation-demo.page').then((m) => m.DictationDemoPage),
+        pathMatch: 'full',
+        redirectTo: 'categories/dictee',
       },
     ],
   },

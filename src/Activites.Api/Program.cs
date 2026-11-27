@@ -60,7 +60,8 @@ builder.Services.AddAuthorization(options =>
 var app = builder.Build();
 using (var scope = app.Services.CreateScope()) { var db = scope.ServiceProvider.GetRequiredService<ActivitiesDbContext>(); await db.Database.EnsureCreatedAsync(); await ActivitiesSchemaUpgrade.ApplyAsync(db); }
 if (app.Environment.IsDevelopment()) { app.UseSwagger(); app.UseSwaggerUI(); }
-app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment())
+    app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 app.Use(async (context, next) =>
